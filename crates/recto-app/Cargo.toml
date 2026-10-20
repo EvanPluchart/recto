@@ -1,0 +1,15 @@
+[package]
+name = "recto"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Recto: a cross-platform PDF viewer and editor"
+
+[[bin]]
+name = "recto"
+path = "src/main.rs"
+
+[dependencies]
+recto-core.workspace = true
+recto-render.workspace = true

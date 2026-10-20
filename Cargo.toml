@@ -1,0 +1,15 @@
+[workspace]
+resolver = "3"
+members = ["crates/recto-core", "crates/recto-render", "crates/recto-app"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+authors = ["Evan Pluchart"]
+repository = "https://github.com/EvanPluchart/recto"
+
+# Pinned versions are added at M0 (see docs/PROMPT.md).
+[workspace.dependencies]
+recto-core = { path = "crates/recto-core" }
+recto-render = { path = "crates/recto-render" }

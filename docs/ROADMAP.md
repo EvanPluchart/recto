@@ -1,0 +1,60 @@
+# Roadmap
+
+Each milestone ends with something you can run and show. Estimates are evenings of side-project time.
+
+## M0 — Skeleton (1 week)
+
+* Workspace compiles on Windows, macOS and Linux (GitHub Actions matrix).
+* `cargo xtask fetch-pdfium` downloads the pinned PDFium build for the host.
+* `recto file.pdf` opens a window and shows page 1, rendered by the render thread.
+
+**Done when:** the same command shows a PDF on all three systems in CI screenshots or by hand.
+
+## M1 — Viewer (2–3 weeks)
+
+* Continuous scroll, zoom (fit width, fit page, %), tiles at high zoom.
+* Thumbnail rail, outline (bookmarks), page number field.
+* Text search with highlighted hits, text selection and copy.
+* Open recent, drag a file onto the window, password-protected files.
+* Light and dark themes.
+
+**Done when:** a 500-page PDF scrolls without stutter and search finds every hit.
+
+## M2 — Organize (2–3 weeks)
+
+* Op log, undo/redo, atomic save / save as.
+* Rotate, delete, reorder (drag in the rail), extract, insert blank page.
+* Merge: drop other PDFs into the rail. Split: by range, every N pages, by bookmark.
+* Multi-select in the rail.
+
+**Done when:** every op round-trips (save, reopen, same result) and has an integration test. **First public release (0.1).**
+
+## M3 — Annotate (3–4 weeks)
+
+* Add text, image, rectangle, ellipse, line, arrow, freehand, highlight, underline, strikeout.
+* Drawn and typed signatures, stored for reuse.
+* Form filling (AcroForm) through PDFium, flatten on save as an option.
+* Annotations are real PDF annotations, editable in other readers.
+
+## M4 — Tools (3–4 weeks)
+
+* Compress (image downsampling + stream recompression), grayscale.
+* Watermark, page numbers, headers and footers.
+* Protect (password, permissions) and unlock.
+* Redact (true content removal), metadata editor.
+* OCR with `ocrs`, producing an invisible text layer.
+
+## M5 — Edit existing text (1–2 months)
+
+* Detect text runs, edit in place, re-encode with the original font when its glyphs allow it, fall back to a matching system font otherwise.
+* This is the hardest feature. Ship it as "beta".
+
+## M6 — Distribution
+
+* Windows installer, signed macOS `.dmg`, AppImage.
+* File associations, "Open with Recto".
+* Landing page on evanpluchart.fr.
+
+## Later, maybe
+
+PDF to images, images to PDF, compare two PDFs, n-up printing, digital signatures (PAdES), batch processing from a CLI (`recto merge a.pdf b.pdf -o out.pdf`).

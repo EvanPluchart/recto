@@ -1,0 +1,9 @@
+target/
+dist/
+
+# Real-world PDFs used for manual testing; never committed
+local-pdfs/
+
+# Local AI tooling
+.agents/
+.claude/settings.local.json
