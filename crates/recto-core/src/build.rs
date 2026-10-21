@@ -12,7 +12,7 @@ use std::collections::{BTreeSet, HashMap};
 use lopdf::{Dictionary, Object, ObjectId};
 
 use crate::PageId;
-use crate::annot;
+use crate::{annot, form};
 use crate::geom::{PageGeometry, Point, Rect};
 use crate::document::{Document, Source};
 use crate::op::{Op, PageState};
@@ -31,6 +31,13 @@ pub enum BuildError {
     Write(std::io::Error),
 }
 
+/// How to build.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BuildOptions {
+    /// Draw form fields into the pages and remove the form (values can no longer be changed).
+    pub flatten_forms: bool,
+}
+
 /// Page attributes a page can inherit from its ancestors in the page tree (PDF 32000, 7.7.3.4).
 const INHERITED: [&[u8]; 4] = [b"Resources", b"MediaBox", b"CropBox", b"Rotate"];
 /// Deeper page trees are treated as broken.
@@ -39,14 +46,47 @@ const MAX_TREE_DEPTH: usize = 64;
 impl Document {
     /// The current document as a PDF file. Without edits, the original bytes, untouched.
     pub fn build(&self) -> Result<Vec<u8>, BuildError> {
-        if self.ops().is_empty() {
+        self.build_with(BuildOptions::default())
+    }
+
+    /// `build`, with options (flattening the form).
+    pub fn build_with(&self, options: BuildOptions) -> Result<Vec<u8>, BuildError> {
+        if self.ops().is_empty() && !options.flatten_forms {
             return Ok(self.bytes().to_vec());
         }
-        self.build_pages(&self.pages())
+        self.build_pages_with(&self.pages(), options)
     }
 
     /// A PDF holding exactly `pages`, in that order (used to extract and split).
     pub fn build_pages(&self, pages: &[PageState]) -> Result<Vec<u8>, BuildError> {
+        self.build_pages_with(pages, BuildOptions::default())
+    }
+
+    /// The current form field values set by `FillField` ops, latest first wins.
+    pub fn filled_values(&self) -> HashMap<String, String> {
+        let mut values = HashMap::new();
+        for op in self.ops() {
+            if let Op::FillField { name, value } = op {
+                values.insert(name.clone(), value.clone());
+            }
+        }
+        values
+    }
+
+    /// The form fields of the opened file, with the values filled so far.
+    pub fn form_fields(&self) -> Result<Vec<form::FormField>, BuildError> {
+        let base = load(&self.sources()[0])?;
+        let filled = self.filled_values();
+        let mut fields = form::fields(&base, 0);
+        for field in &mut fields {
+            if let Some(value) = filled.get(&field.name) {
+                field.value = value.clone();
+            }
+        }
+        Ok(fields)
+    }
+
+    fn build_pages_with(&self, pages: &[PageState], options: BuildOptions) -> Result<Vec<u8>, BuildError> {
         if self.ops().iter().any(|op| matches!(op, Op::Redact { .. })) {
             return Err(BuildError::Unsupported);
         }
@@ -116,6 +156,10 @@ impl Document {
             let Some(&id) = objects.get(page) else { continue };
             let written = annotation.write(&mut base, id, serial);
             annot::attach(&mut base, id, written)?;
+        }
+        form::fill(&mut base, &self.filled_values());
+        if options.flatten_forms {
+            form::flatten(&mut base)?;
         }
         base.prune_objects();
 

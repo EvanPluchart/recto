@@ -34,6 +34,8 @@ pub enum Op {
     InsertPages { pages: Vec<PageId>, at: usize },
     /// A new annotation on `page`, in the page's user space.
     AddAnnotation { page: PageId, annotation: Annotation },
+    /// Sets the value of the form field named `name` (see `form::FormField::value`).
+    FillField { name: String, value: String },
     /// Redaction removes content under `area`; it never only paints over it. (M4)
     Redact { page: PageId, area: Rect },
 }
@@ -73,7 +75,7 @@ pub fn replay(initial: &[PageId], ops: &[Op]) -> Vec<PageState> {
                 let at = (*at).min(pages.len());
                 pages.splice(at..at, fresh);
             }
-            Op::AddAnnotation { .. } | Op::Redact { .. } => {}
+            Op::AddAnnotation { .. } | Op::FillField { .. } | Op::Redact { .. } => {}
         }
     }
     pages

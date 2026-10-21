@@ -95,4 +95,23 @@ fn annotations_render_where_they_were_placed() {
     let right = dark_pixels(&bitmap, 250, 400, 400, 460);
     assert!(left > 100 && right > 100, "left {left}, right {right}");
     assert_eq!(dark_pixels(&bitmap, 100, 470, 400, 590), 0, "nothing below the box");
+
+    // Filled form fields show their values, flattened or not.
+    let mut form = Document::open(fixture.join("forms.pdf")).unwrap();
+    let empty = render(&thread, form.build().unwrap(), 0);
+    // The name field spans user x 150..400, y 700..724: display y 118..142.
+    assert_eq!(dark_pixels(&empty, 152, 120, 398, 140), 0, "the name field starts empty");
+    for (name, value) in [("name", "Ada Lovelace"), ("agree", "Yes"), ("size", "Large")] {
+        form.apply(Op::FillField { name: name.into(), value: value.into() });
+    }
+    for flatten in [false, true] {
+        let bytes = form.build_with(recto_core::BuildOptions { flatten_forms: flatten }).unwrap();
+        let filled = render(&thread, bytes, 0);
+        assert!(dark_pixels(&filled, 152, 120, 398, 140) > 50, "name value shown (flatten {flatten})");
+        // Check box at user (150..166, 650..666): its mark is at display (153..163, 179..189).
+        assert!(dark_pixels(&filled, 154, 180, 162, 188) > 40, "check box on (flatten {flatten})");
+        // Radio "Small" (user x 150) stays off, "Large" (user x 250) is on; y 600..616 → 226..242.
+        assert_eq!(dark_pixels(&filled, 154, 230, 162, 238), 0, "small off (flatten {flatten})");
+        assert!(dark_pixels(&filled, 254, 230, 262, 238) > 40, "large on (flatten {flatten})");
+    }
 }

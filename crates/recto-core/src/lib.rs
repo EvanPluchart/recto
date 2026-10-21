@@ -4,6 +4,7 @@
 pub mod annot;
 pub mod build;
 pub mod document;
+pub mod form;
 pub mod geom;
 pub mod layout;
 pub mod op;
@@ -11,7 +12,7 @@ pub mod save;
 pub mod split;
 pub mod text;
 
-pub use build::BuildError;
+pub use build::{BuildError, BuildOptions};
 pub use document::{Document, OpenError, Source};
 
 /// Stable page identity: survives reordering, so selections and caches stay valid.
