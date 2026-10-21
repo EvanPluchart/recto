@@ -62,7 +62,7 @@ fn dictionary<'a>(document: &'a lopdf::Document, object: &'a Object) -> Option<&
 fn decode(object: &Object) -> Option<String> {
     match object {
         Object::String(bytes, _) if bytes.starts_with(&[0xFE, 0xFF]) => {
-            let units: Vec<u16> = bytes[2..].chunks_exact(2).map(|pair| u16::from_be_bytes([pair[0], pair[1]])).collect();
+            let units: Vec<u16> = bytes[2..].as_chunks::<2>().0.iter().map(|pair| u16::from_be_bytes(*pair)).collect();
             Some(String::from_utf16_lossy(&units))
         }
         Object::String(bytes, _) => Some(bytes.iter().map(|&b| b as char).collect()),
