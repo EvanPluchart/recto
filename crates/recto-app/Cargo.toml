@@ -13,3 +13,7 @@ path = "src/main.rs"
 [dependencies]
 recto-core.workspace = true
 recto-render.workspace = true
+anyhow.workspace = true
+flume.workspace = true
+gpui.workspace = true
+image.workspace = true
