@@ -10,6 +10,7 @@ pub use pdfium::{PdfiumRenderer, RenderError};
 pub use thread::{RenderThread, Response};
 
 pub use recto_core::geom::Size;
+pub use recto_core::text::PageText;
 
 use recto_core::PageId;
 
@@ -52,6 +53,8 @@ pub trait Renderer {
     /// Loads a document, replacing the previous one.
     fn open(&mut self, bytes: std::sync::Arc<[u8]>, password: Option<&str>) -> Result<DocInfo, Self::Error>;
     fn render(&mut self, request: &RenderRequest) -> Result<Bitmap, Self::Error>;
+    /// Characters of page `index` with their boxes on the displayed page.
+    fn text(&mut self, index: usize) -> Result<PageText, Self::Error>;
 }
 
 #[derive(Clone, Debug, PartialEq)]

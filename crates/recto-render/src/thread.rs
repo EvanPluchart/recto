@@ -7,11 +7,12 @@ use std::thread::JoinHandle;
 use anyhow::{Context, Result, anyhow};
 use flume::{Receiver, Sender};
 
-use crate::{Bitmap, DocInfo, RenderRequest, Renderer};
+use crate::{Bitmap, DocInfo, PageText, RenderRequest, Renderer};
 
 enum Command {
     Open { bytes: Arc<[u8]>, password: Option<String> },
     Render(RenderRequest),
+    Text(usize),
 }
 
 #[derive(Debug)]
@@ -19,6 +20,8 @@ pub enum Response {
     /// Answer to `open`.
     Opened(Result<DocInfo>),
     Rendered { request: RenderRequest, result: Result<Bitmap> },
+    /// Answer to `text`. Text requests are never dropped as stale.
+    Text { index: usize, result: Result<PageText> },
 }
 
 pub struct RenderThread {
@@ -70,6 +73,11 @@ impl RenderThread {
         let _ = self.commands.send(Command::Render(request));
     }
 
+    /// Asks for the text of page `index`.
+    pub fn text(&self, index: usize) {
+        let _ = self.commands.send(Command::Text(index));
+    }
+
     /// Answers, in request order. The receiver can be cloned and awaited with `recv_async`.
     pub fn responses(&self) -> &Receiver<Response> {
         &self.responses
@@ -99,6 +107,7 @@ fn serve<R: Renderer>(mut renderer: R, commands: Receiver<Command>, responses: S
                 }
                 Response::Rendered { request, result: renderer.render(&request).map_err(anyhow::Error::new) }
             }
+            Command::Text(index) => Response::Text { index, result: renderer.text(index).map_err(anyhow::Error::new) },
         };
         if responses.send(response).is_err() {
             break;
@@ -135,6 +144,10 @@ mod tests {
             let width = request.index as u32 + 1;
             Ok(Bitmap { width, height: 1, pixels: vec![255; 4 * width as usize] })
         }
+
+        fn text(&mut self, _: usize) -> Result<PageText, MockError> {
+            Ok(PageText::default())
+        }
     }
 
     fn request(index: usize, generation: u64) -> RenderRequest {
@@ -151,12 +164,14 @@ mod tests {
         let old = thread.next_generation();
         thread.request(request(0, old));
         thread.request(request(1, old));
+        thread.text(1);
         let new = thread.next_generation();
         thread.request(request(2, new));
         thread.open(Arc::from(&b""[..]), None); // marks the end of the queue
         release.send(()).unwrap();
 
         let mut rendered = Vec::new();
+        let mut texts = Vec::new();
         let mut opened = 0;
         while opened < 2 {
             match thread.responses().recv().unwrap() {
@@ -168,9 +183,15 @@ mod tests {
                     result.unwrap();
                     rendered.push(request);
                 }
+                Response::Text { index, result } => {
+                    result.unwrap();
+                    texts.push(index);
+                }
             }
         }
         assert_eq!(rendered, vec![request(2, new)]);
+        // Text requests have no generation: queued before the new one, still answered.
+        assert_eq!(texts, vec![1]);
     }
 
     #[test]

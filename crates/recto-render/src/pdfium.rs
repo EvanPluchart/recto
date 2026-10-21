@@ -4,10 +4,13 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use pdfium_render::prelude::{
-    PdfBitmapFormat, PdfBookmark, PdfColor, PdfDocument, PdfPageIndex, PdfRenderConfig, Pdfium, PdfiumError,
+    PdfBitmapFormat, PdfBookmark, PdfColor, PdfDocument, PdfPage, PdfPageIndex, PdfPoints, PdfRect, PdfRenderConfig,
+    Pdfium, PdfiumError,
 };
 
-use crate::{Bitmap, DocInfo, OutlineEntry, RenderRequest, Renderer, Size};
+use recto_core::geom::PageRect;
+
+use crate::{Bitmap, DocInfo, OutlineEntry, PageText, RenderRequest, Renderer, Size};
 
 /// Largest bitmap side, in pixels. Bigger requests must be split into tiles.
 const MAX_SIDE: f32 = 16_384.0;
@@ -58,12 +61,7 @@ impl Renderer for PdfiumRenderer {
     }
 
     fn render(&mut self, request: &RenderRequest) -> Result<Bitmap, RenderError> {
-        let document = self.document.as_ref().ok_or(RenderError::NoDocument)?;
-        let count = document.pages().len() as usize;
-        if request.index >= count {
-            return Err(RenderError::PageOutOfRange { index: request.index, count });
-        }
-        let page = document.pages().get(request.index as PdfPageIndex)?;
+        let page = self.page(request.index)?;
         let largest = page.width().value.max(page.height().value) * request.scale;
         if !(request.scale > 0.0 && largest.is_finite() && largest <= MAX_SIDE) {
             return Err(RenderError::InvalidScale(request.scale));
@@ -84,6 +82,76 @@ impl Renderer for PdfiumRenderer {
         }
         // Opaque white background: straight and premultiplied alpha are the same here.
         Ok(Bitmap { width: width as u32, height: height as u32, pixels })
+    }
+
+    fn text(&mut self, index: usize) -> Result<PageText, RenderError> {
+        let page = self.page(index)?;
+        let to_display = DisplayTransform::of(&page)?;
+        let text = page.text()?;
+        let mut chars = Vec::new();
+        let mut boxes = Vec::new();
+        for char in text.chars().iter() {
+            chars.push(char.unicode_char().unwrap_or(char::REPLACEMENT_CHARACTER));
+            // Characters PDFium generated (line breaks, inferred spaces) have no bounds.
+            boxes.push(char.loose_bounds().map(|rect| to_display.rect(&rect)).unwrap_or_default());
+        }
+        Ok(PageText { chars, boxes })
+    }
+}
+
+impl PdfiumRenderer {
+    fn page(&self, index: usize) -> Result<PdfPage<'_>, RenderError> {
+        let document = self.document.as_ref().ok_or(RenderError::NoDocument)?;
+        let count = document.pages().len() as usize;
+        if index >= count {
+            return Err(RenderError::PageOutOfRange { index, count });
+        }
+        Ok(document.pages().get(index as PdfPageIndex)?)
+    }
+}
+
+/// Maps PDF user space to the displayed page (points, top-left origin, crop box and `/Rotate`
+/// applied), as an affine transform measured through PDFium's own page-to-device mapping.
+struct DisplayTransform {
+    /// `[a, b, c, d, e, f]`: x' = a·x + c·y + e, y' = b·x + d·y + f.
+    matrix: [f32; 6],
+}
+
+impl DisplayTransform {
+    fn of(page: &PdfPage<'_>) -> Result<Self, RenderError> {
+        // Device coordinates are integers: measure at 16 px per point, over a 1000 pt span.
+        const SCALE: f32 = 16.0;
+        const SPAN: f32 = 1000.0;
+        let config = PdfRenderConfig::new().scale_page_by_factor(SCALE);
+        let map = |x: f32, y: f32| -> Result<(f32, f32), RenderError> {
+            let (px, py) = page.points_to_pixels(PdfPoints::new(x), PdfPoints::new(y), &config)?;
+            Ok((px as f32 / SCALE, py as f32 / SCALE))
+        };
+        let origin = map(0.0, 0.0)?;
+        let x_axis = map(SPAN, 0.0)?;
+        let y_axis = map(0.0, SPAN)?;
+        Ok(Self {
+            matrix: [
+                (x_axis.0 - origin.0) / SPAN,
+                (x_axis.1 - origin.1) / SPAN,
+                (y_axis.0 - origin.0) / SPAN,
+                (y_axis.1 - origin.1) / SPAN,
+                origin.0,
+                origin.1,
+            ],
+        })
+    }
+
+    fn point(&self, x: f32, y: f32) -> (f32, f32) {
+        let [a, b, c, d, e, f] = self.matrix;
+        (a * x + c * y + e, b * x + d * y + f)
+    }
+
+    /// The transform keeps axis-aligned boxes axis-aligned (rotations are multiples of 90°).
+    fn rect(&self, rect: &PdfRect) -> PageRect {
+        let (x0, y0) = self.point(rect.left().value, rect.bottom().value);
+        let (x1, y1) = self.point(rect.right().value, rect.top().value);
+        PageRect { x: x0.min(x1), y: y0.min(y1), width: (x1 - x0).abs(), height: (y1 - y0).abs() }
     }
 }
 

@@ -58,27 +58,27 @@ impl PageText {
         hits
     }
 
-    /// Boxes covering `range`, one per line of text.
+    /// Boxes covering `range`, one per line of text. Lines end at the line breaks the extractor
+    /// inserted, which works for any text direction.
     pub fn rects(&self, range: Range<usize>) -> Vec<PageRect> {
+        let end = range.end.min(self.chars.len()).min(self.boxes.len());
         let mut lines: Vec<PageRect> = Vec::new();
-        for rect in self.boxes[range.start.min(self.boxes.len())..range.end.min(self.boxes.len())].iter() {
-            if rect.is_empty() {
-                continue;
-            }
-            match lines.last_mut() {
-                // Same line: the boxes overlap vertically by at least half the smaller height.
-                Some(line) if overlap(line.y, line.bottom(), rect.y, rect.bottom()) >= 0.5 * line.height.min(rect.height) => {
-                    *line = line.union(rect);
+        let mut current = PageRect::default();
+        for index in range.start.min(end)..end {
+            if matches!(self.chars[index], '\r' | '\n') {
+                if !current.is_empty() {
+                    lines.push(current);
                 }
-                _ => lines.push(*rect),
+                current = PageRect::default();
+            } else {
+                current = current.union(&self.boxes[index]);
             }
+        }
+        if !current.is_empty() {
+            lines.push(current);
         }
         lines
     }
-}
-
-fn overlap(a0: f32, a1: f32, b0: f32, b1: f32) -> f32 {
-    (a1.min(b1) - a0.max(b0)).max(0.0)
 }
 
 #[cfg(test)]

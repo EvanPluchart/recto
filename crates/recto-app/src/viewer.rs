@@ -163,6 +163,7 @@ impl Viewer {
                 open.info = Some(info);
             }
             Response::Opened(Err(e)) => self.state = State::Error(failure("Cannot open the document", e)),
+            Response::Text { .. } => {}
             Response::Rendered { request, result } if request.purpose == Purpose::Thumbnail => match result {
                 Ok(bitmap) => sidebar::store_thumbnail(open, request.index, bitmap, cx),
                 // A missing thumbnail is not worth an error: the page itself reports it.
