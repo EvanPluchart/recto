@@ -7234,6 +7234,7 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "flate2",
+ "lopdf",
  "pdf-writer",
  "tar",
  "ureq",

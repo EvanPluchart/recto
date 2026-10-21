@@ -8,7 +8,10 @@ use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref, Str, TextStr};
 
 /// Committed fixtures, by file name.
 type Fixture = (&'static str, fn() -> Vec<u8>);
+/// Byte-for-byte reproducible fixtures; the up-to-date test compares them with the generators.
 const FIXTURES: [Fixture; 2] = [("sample.pdf", sample_pdf), ("layout.pdf", layout_pdf)];
+/// Encrypted: the `/U` entry ends with arbitrary bytes, which `lopdf` draws at random.
+const PROTECTED: &str = "protected.pdf";
 
 pub fn generate(root: &Path) -> Result<()> {
     let dir = root.join("tests/fixtures");
@@ -17,6 +20,8 @@ pub fn generate(root: &Path) -> Result<()> {
         std::fs::write(dir.join(name), build())?;
         println!("wrote {}", dir.join(name).display());
     }
+    std::fs::write(dir.join(PROTECTED), protected_pdf())?;
+    println!("wrote {}", dir.join(PROTECTED).display());
     Ok(())
 }
 
@@ -39,6 +44,30 @@ const IMAGE_SIZE: u32 = 64;
 pub fn layout_pdf() -> Vec<u8> {
     let outline = [("Portrait", 0, 0), ("Landscape", 1, 1), ("Rotated", 0, 2), ("Letter", 0, 3)];
     text_pages(&[(A4, 0), (A4_LANDSCAPE, 0), (A4, 90), (LETTER, 0)], &outline)
+}
+
+/// User password of `protected.pdf`.
+pub const PROTECTED_PASSWORD: &str = "recto";
+
+/// One A4 page, RC4 128-bit encrypted with user password `recto` and owner password `owner`.
+/// The file ID is fixed so the output stays deterministic.
+pub fn protected_pdf() -> Vec<u8> {
+    let plain = text_pages(&[(A4, 0)], &[]);
+    let mut document = lopdf::Document::load_mem(&plain).expect("generated PDF parses");
+    let id = lopdf::Object::String(b"recto-protected-fixture".to_vec(), lopdf::StringFormat::Hexadecimal);
+    document.trailer.set("ID", lopdf::Object::Array(vec![id.clone(), id]));
+    let version = lopdf::EncryptionVersion::V2 {
+        document: &document,
+        owner_password: "owner",
+        user_password: PROTECTED_PASSWORD,
+        key_length: 128,
+        permissions: lopdf::Permissions::all(),
+    };
+    let state = lopdf::EncryptionState::try_from(version).expect("valid encryption settings");
+    document.encrypt(&state).expect("document is not encrypted yet");
+    let mut bytes = Vec::new();
+    document.save_to(&mut bytes).expect("writing to a Vec");
+    bytes
 }
 
 /// One line of Helvetica per page, on pages of the given media box and rotation, plus an outline
@@ -193,5 +222,17 @@ mod tests {
             let committed = std::fs::read(&path).unwrap_or_else(|_| panic!("{name} missing; run `cargo xtask gen-fixtures`"));
             assert!(committed == build(), "{name} is stale; run `cargo xtask gen-fixtures`");
         }
+    }
+
+    #[test]
+    fn protected_fixture_needs_its_password() {
+        let bytes = std::fs::read(crate::workspace_root().join("tests/fixtures").join(PROTECTED))
+            .expect("protected.pdf exists; run `cargo xtask gen-fixtures`");
+        let locked = lopdf::Document::load_mem(&bytes).unwrap();
+        assert!(locked.is_encrypted() && locked.authenticate_password("").is_err());
+        assert!(locked.authenticate_password(PROTECTED_PASSWORD).is_ok());
+        let options = lopdf::LoadOptions::with_password(PROTECTED_PASSWORD);
+        let open = lopdf::Document::load_mem_with_options(&bytes, options).unwrap();
+        assert_eq!(open.get_pages().len(), 1);
     }
 }
