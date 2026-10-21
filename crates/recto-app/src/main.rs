@@ -1,4 +1,4 @@
-//! Recto binary: `recto [file.pdf] [--page=N] [--zoom=PCT] [--sidebar=thumbnails|outline] [--find=TEXT] [--dark|--light]`.
+//! Recto binary: `recto [file.pdf] [--page=N] [--zoom=PCT] [--sidebar=thumbnails|outline] [--find=TEXT] [--apply=EDITS] [--save-as=PATH] [--dark|--light]`.
 //! Opens one document in a continuous, zoomable page view.
 
 mod i18n;
@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use gpui::{App, AppContext, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions, px, size};
 
 use crate::i18n::t;
-use crate::viewer::{Tab, Viewer};
+use crate::viewer::{EditSpec, Tab, Viewer, parse_edits};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Args {
@@ -27,11 +27,15 @@ pub struct Args {
     pub sidebar: Option<Tab>,
     /// Search opened at start (`--find=TEXT`).
     pub find: Option<String>,
+    /// Edits applied at start (`--apply=rotate:2,delete:3,move:4>1,blank:0,undo`), for screenshots.
+    pub apply: Vec<EditSpec>,
+    /// Writes the (edited) document there at start, then keeps it open (`--save-as=PATH`).
+    pub save_as: Option<PathBuf>,
 }
 
 impl Args {
     fn parse(args: impl IntoIterator<Item = String>) -> Self {
-        let mut parsed = Args { file: None, page: 1, zoom: None, dark: None, sidebar: None, find: None };
+        let mut parsed = Args { file: None, page: 1, zoom: None, dark: None, sidebar: None, find: None, apply: Vec::new(), save_as: None };
         for arg in args {
             if let Some(n) = arg.strip_prefix("--page=") {
                 parsed.page = n.parse().ok().filter(|&n| n >= 1).unwrap_or(1);
@@ -39,6 +43,13 @@ impl Args {
                 parsed.zoom = pct.trim_end_matches('%').parse().ok().filter(|z: &f32| z.is_finite() && *z > 0.0);
             } else if let Some(name) = arg.strip_prefix("--sidebar=") {
                 parsed.sidebar = Tab::parse(name);
+            } else if let Some(spec) = arg.strip_prefix("--apply=") {
+                match parse_edits(spec) {
+                    Ok(edits) => parsed.apply = edits,
+                    Err(error) => eprintln!("recto: ignoring --apply: {error}"),
+                }
+            } else if let Some(path) = arg.strip_prefix("--save-as=") {
+                parsed.save_as = Some(PathBuf::from(path));
             } else if let Some(query) = arg.strip_prefix("--find=") {
                 parsed.find = Some(query.to_owned());
             } else if arg == "--dark" {
@@ -92,13 +103,13 @@ mod tests {
     fn parses_test_flags() {
         let args = parse("a.pdf --page=3 --zoom=150 --dark --sidebar=outline");
         let expected =
-            Args { file: Some("a.pdf".into()), page: 3, zoom: Some(150.0), dark: Some(true), sidebar: Some(Tab::Outline), find: None };
+            Args { file: Some("a.pdf".into()), page: 3, zoom: Some(150.0), dark: Some(true), sidebar: Some(Tab::Outline), find: None, apply: Vec::new(), save_as: None };
         assert_eq!(args, expected);
     }
 
     #[test]
     fn falls_back_on_bad_values() {
         let args = parse("--page=0 --zoom=abc --light");
-        assert_eq!(args, Args { file: None, page: 1, zoom: None, dark: Some(false), sidebar: None, find: None });
+        assert_eq!(args, Args { file: None, page: 1, zoom: None, dark: Some(false), sidebar: None, find: None, apply: Vec::new(), save_as: None });
     }
 }

@@ -22,11 +22,19 @@ fn describe(path: &Path) -> (SharedString, SharedString) {
 }
 
 impl Viewer {
-    /// Replaces the current document with the one at `path`, showing page `page` (1-based).
+    /// Opens `path` in place of the current document, after confirmation if it has unsaved changes.
     pub(super) fn open_path(&mut self, path: PathBuf, page: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.confirm_discard(window, cx, move |viewer, window, cx| viewer.replace_document(path, page, window, cx));
+    }
+
+    /// Replaces the current document with the one at `path`, showing page `page` (1-based).
+    pub(super) fn replace_document(&mut self, path: PathBuf, page: usize, window: &mut Window, cx: &mut Context<Self>) {
         // Dropping the previous document stops its render thread before the next one starts.
         self.state = State::Empty;
         self.selection = None;
+        self.rail.clear();
+        self.notice = None;
+        self.dialog = None;
         self.recent_menu = false;
         self.search.restart();
         self.sidebar.forget_followed();
@@ -45,7 +53,8 @@ impl Viewer {
         self.state = if document.needs_password() {
             State::Locked(Box::new(Locked::new(document, page, self.theme, window, cx)))
         } else {
-            match self.start(document, None, page, window, cx) {
+            let bytes = document.bytes();
+            match self.start(document, bytes, page.saturating_sub(1), window, cx) {
                 Ok(open) => State::Open(Box::new(open)),
                 Err(message) => State::Error(message),
             }

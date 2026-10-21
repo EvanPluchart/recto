@@ -11,17 +11,26 @@ use gpui::{
 };
 use recto_core::geom::{PageRect, Point, Size};
 use recto_core::layout::{self, PageLayout};
+use recto_core::op::{PageState, Rotation};
 use recto_core::{Document, PageId};
 use recto_render::{Bitmap, DocInfo, PageText, PdfiumRenderer, Purpose, RenderRequest, RenderThread, Response, Tile};
 
 mod files;
+mod dialog;
+mod edit;
+mod output;
 mod password;
+mod rail;
 mod search;
 mod selection;
 mod sidebar;
 
 pub use self::sidebar::Tab;
+pub use self::edit::{EditSpec, parse_edits};
+use self::dialog::{Dialog, DialogKind};
+use self::output::SplitMode;
 use self::password::Locked;
+use self::rail::RailSelection;
 use self::search::Search;
 use self::selection::Selection;
 use self::sidebar::Sidebar;
@@ -34,7 +43,8 @@ actions!(
     viewer,
     [
         ZoomIn, ZoomOut, ActualSize, FitWidth, FitPage, GoToPage, LineDown, LineUp, ScreenDown, ScreenUp, FirstPage,
-        LastPage, ToggleThumbnails, ToggleOutline, Find, FindNext, FindPrevious, CopySelection, OpenFile
+        LastPage, ToggleThumbnails, ToggleOutline, Find, FindNext, FindPrevious, CopySelection, OpenFile, Undo, Redo,
+        Save, SaveAs, RotateLeft, RotateRight, DeletePages, InsertBlank, InsertFile, Extract, Split
     ]
 );
 
@@ -77,7 +87,9 @@ struct Cached {
 struct Open {
     /// Which opening this is (`Viewer::opened`), to ignore late answers meant for a previous one.
     serial: u64,
-    _document: Document,
+    /// The document and its edit log; `page_states` are the pages of the bytes being shown.
+    document: Document,
+    page_states: Vec<PageState>,
     renderer: RenderThread,
     info: Option<DocInfo>,
     layout: Option<PageLayout>,
@@ -169,10 +181,20 @@ pub struct Viewer {
     sidebar: Sidebar,
     search: Search,
     selection: Option<Selection>,
+    /// The extract / split modal, when open.
+    dialog: Option<Dialog>,
+    /// The reader agreed to close with unsaved changes.
+    closing: bool,
     recent: Vec<std::path::PathBuf>,
     recent_menu: bool,
     /// Documents opened so far in this window.
     opened: u64,
+    /// Pages selected in the thumbnail rail.
+    rail: RailSelection,
+    /// A message for the reader (errors, confirmations), shown under the toolbar.
+    notice: Option<SharedString>,
+    /// Latest background build; older ones are discarded when they finish.
+    build_version: u64,
 }
 
 impl Viewer {
@@ -203,33 +225,64 @@ impl Viewer {
             sidebar: Sidebar::new(args.sidebar),
             search,
             selection: None,
+            dialog: None,
+            closing: false,
             recent: recent::load(),
             recent_menu: false,
             opened: 0,
+            rail: RailSelection::default(),
+            notice: None,
+            build_version: 0,
         };
         // Focus first: a password prompt takes it over.
         window.focus(&viewer.focus);
         if let Some(path) = args.file {
-            viewer.open_path(path, args.page, window, cx);
+            viewer.replace_document(path, args.page, window, cx);
+        }
+        if !args.apply.is_empty() {
+            viewer.apply_specs(&args.apply, window, cx);
+        }
+        if let Some(path) = args.save_as {
+            viewer.write_document(path, window, cx);
         }
         if let Some(query) = args.find {
             viewer.preset_search(query, cx);
         }
+        // Closing the window with unsaved changes asks first.
+        let this = cx.entity().downgrade();
+        window.on_window_should_close(cx, move |window, cx| {
+            this.update(cx, |viewer, cx| viewer.may_close(window, cx)).unwrap_or(true)
+        });
         viewer
     }
 
-    /// Starts a render thread for `document` (unlocked with `password` if it needs one) and
-    /// listens to it; page `page` (1-based) is shown once the layout exists.
+    /// Whether the window may close now; with unsaved changes, asks and closes it later if the
+    /// reader agrees.
+    fn may_close(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let modified = self.open().is_some_and(|open| open.document.is_modified());
+        if !modified || self.closing {
+            return true;
+        }
+        self.confirm_discard(window, cx, |viewer, window, _| {
+            viewer.closing = true;
+            window.remove_window();
+        });
+        false
+    }
+
+    /// Starts a render thread showing `bytes` (the document as built, unlocked with its password
+    /// if it has one) and listens to it; page `page` (0-based) is shown once the layout exists.
     fn start(
         &mut self,
         document: Document,
-        password: Option<&str>,
+        bytes: Arc<[u8]>,
         page: usize,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<Open, SharedString> {
         let renderer = RenderThread::spawn(PdfiumRenderer::new).map_err(|e| failure("Cannot start the renderer", e))?;
-        renderer.open(document.bytes(), password);
+        renderer.open(bytes, document.password());
+        let page_states = document.pages();
         let responses = renderer.responses().clone();
         // Responses go to this document only: once another one is open, the listener stops.
         self.opened += 1;
@@ -251,7 +304,8 @@ impl Viewer {
         .detach();
         Ok(Open {
             serial,
-            _document: document,
+            document,
+            page_states,
             renderer,
             info: None,
             layout: None,
@@ -266,7 +320,7 @@ impl Viewer {
             texts_in_flight: HashSet::new(),
             tiles: HashMap::new(),
             tiles_in_flight: HashSet::new(),
-            pending_page: Some(page.saturating_sub(1)),
+            pending_page: Some(page),
         })
     }
 
@@ -761,6 +815,19 @@ impl Render for Viewer {
             .on_action(cx.listener(|this, _: &FirstPage, window, cx| this.go_to_page(0, window, cx)))
             .on_action(cx.listener(|this, _: &LastPage, window, cx| this.go_to_page(usize::MAX, window, cx)))
             .on_action(cx.listener(|this, _: &OpenFile, window, cx| this.prompt_open(window, cx)))
+            .on_action(cx.listener(|this, _: &Undo, window, cx| this.undo(window, cx)))
+            .on_action(cx.listener(|this, _: &Redo, window, cx| this.redo(window, cx)))
+            .on_action(cx.listener(|this, _: &Save, window, cx| this.save(window, cx)))
+            .on_action(cx.listener(|this, _: &SaveAs, window, cx| this.save_as(window, cx)))
+            .on_action(cx.listener(|this, _: &RotateLeft, window, cx| this.rotate(Rotation::R270, window, cx)))
+            .on_action(cx.listener(|this, _: &RotateRight, window, cx| this.rotate(Rotation::R90, window, cx)))
+            .on_action(cx.listener(|this, _: &DeletePages, window, cx| this.delete_pages(window, cx)))
+            .on_action(cx.listener(|this, _: &InsertBlank, window, cx| this.insert_blank(window, cx)))
+            .on_action(cx.listener(|this, _: &InsertFile, window, cx| this.prompt_insert_files(window, cx)))
+            .on_action(cx.listener(|this, _: &Extract, window, cx| this.open_dialog(DialogKind::Extract, window, cx)))
+            .on_action(cx.listener(|this, _: &Split, window, cx| {
+                this.open_dialog(DialogKind::Split(SplitMode::Ranges), window, cx)
+            }))
             .on_drop(cx.listener(Self::on_drop_paths))
             .drag_over::<ExternalPaths>(move |style, _, _, _| style.border_2().border_color(theme.accent))
             .relative()
@@ -769,9 +836,110 @@ impl Render for Viewer {
             .flex_col()
             .bg(theme.canvas)
             .child(self.toolbar(cx))
+            .children(self.page_tools(cx))
+            .children(self.notice_bar(cx))
             .children(self.search_bar(cx))
             .child(div().flex().flex_1().min_h_0().children(self.sidebar(window, cx)).child(self.pages(window, cx)))
             .children(self.recent_menu(cx))
+            .children(self.dialog_view(cx))
+    }
+}
+
+impl Viewer {
+    /// Second toolbar row: edit history, page operations, files.
+    fn page_tools(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let open = self.open()?;
+        open.info.as_ref()?;
+        let theme = self.theme;
+        let (can_undo, can_redo) = (open.document.can_undo(), open.document.can_redo());
+        let button = |id: &'static str, label: &'static str, enabled: bool| {
+            div()
+                .id(id)
+                .px(px(8.))
+                .py(px(3.))
+                .rounded(px(4.))
+                .when(enabled, |b| b.cursor_pointer().hover(move |s| s.bg(theme.hover)))
+                .when(!enabled, |b| b.text_color(theme.muted))
+                .child(t(label))
+        };
+        let separator = || div().w(px(1.)).h(px(18.)).mx(px(4.)).bg(theme.border);
+        Some(
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(2.))
+                .h(px(34.))
+                .px(px(8.))
+                .bg(theme.toolbar)
+                .border_b_1()
+                .border_color(theme.border)
+                .text_color(theme.text)
+                .text_sm()
+                .child(button("undo", "Undo", can_undo).on_click(cx.listener(|this, _, window, cx| this.undo(window, cx))))
+                .child(button("redo", "Redo", can_redo).on_click(cx.listener(|this, _, window, cx| this.redo(window, cx))))
+                .child(separator())
+                .child(
+                    button("rotate-left", "Rotate left", true)
+                        .on_click(cx.listener(|this, _, window, cx| this.rotate(Rotation::R270, window, cx))),
+                )
+                .child(
+                    button("rotate-right", "Rotate right", true)
+                        .on_click(cx.listener(|this, _, window, cx| this.rotate(Rotation::R90, window, cx))),
+                )
+                .child(button("delete", "Delete", true).on_click(cx.listener(|this, _, window, cx| this.delete_pages(window, cx))))
+                .child(button("blank", "Blank page", true).on_click(cx.listener(|this, _, window, cx| this.insert_blank(window, cx))))
+                .child(
+                    button("insert-file", "Insert file…", true)
+                        .on_click(cx.listener(|this, _, window, cx| this.prompt_insert_files(window, cx))),
+                )
+                .child(separator())
+                .child(
+                    button("extract", "Extract…", true)
+                        .on_click(cx.listener(|this, _, window, cx| this.open_dialog(DialogKind::Extract, window, cx))),
+                )
+                .child(button("split", "Split…", true).on_click(cx.listener(|this, _, window, cx| {
+                    this.open_dialog(DialogKind::Split(SplitMode::Ranges), window, cx)
+                })))
+                .child(div().flex_1())
+                .child(button("save", "Save", open.document.is_modified()).on_click(cx.listener(|this, _, window, cx| this.save(window, cx))))
+                .child(button("save-as", "Save as…", true).on_click(cx.listener(|this, _, window, cx| this.save_as(window, cx))))
+                .into_any_element(),
+        )
+    }
+
+    /// The latest notice, with a button to dismiss it.
+    fn notice_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let notice = self.notice.clone()?;
+        let theme = self.theme;
+        Some(
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(8.))
+                .px(px(12.))
+                .py(px(6.))
+                .bg(theme.field)
+                .border_b_1()
+                .border_color(theme.border)
+                .text_sm()
+                .text_color(theme.text)
+                .child(div().flex_1().child(notice))
+                .child(
+                    div()
+                        .id("notice-close")
+                        .px(px(6.))
+                        .cursor_pointer()
+                        .text_color(theme.muted)
+                        .child(t("Dismiss"))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.notice = None;
+                            cx.notify();
+                        })),
+                )
+                .into_any_element(),
+        )
     }
 }
 
@@ -790,6 +958,15 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("shift-f4", ToggleOutline, Some("Viewer")),
         KeyBinding::new("secondary-f", Find, Some("Viewer")),
         KeyBinding::new("secondary-o", OpenFile, Some("Viewer")),
+        KeyBinding::new("secondary-z", Undo, PAGES),
+        KeyBinding::new("secondary-y", Redo, PAGES),
+        KeyBinding::new("secondary-shift-z", Redo, PAGES),
+        KeyBinding::new("secondary-s", Save, Some("Viewer")),
+        KeyBinding::new("secondary-shift-s", SaveAs, Some("Viewer")),
+        KeyBinding::new("secondary-r", RotateRight, PAGES),
+        KeyBinding::new("secondary-shift-r", RotateLeft, PAGES),
+        KeyBinding::new("delete", DeletePages, PAGES),
+        KeyBinding::new("secondary-e", Extract, Some("Viewer")),
         KeyBinding::new("f3", FindNext, Some("Viewer")),
         KeyBinding::new("shift-f3", FindPrevious, Some("Viewer")),
         KeyBinding::new("secondary-c", CopySelection, PAGES),

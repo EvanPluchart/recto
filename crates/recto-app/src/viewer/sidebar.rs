@@ -1,7 +1,8 @@
 //! The sidebar: page thumbnails or the document outline, both virtualised lists.
 
 use gpui::{
-    AnyElement, Context, IntoElement, ParentElement, ScrollStrategy, SharedString, Styled, UniformListScrollHandle,
+    AnyElement, ClickEvent, Context, ExternalPaths, IntoElement, ParentElement, ScrollStrategy, SharedString, Styled,
+    UniformListScrollHandle,
     Window, div, img, prelude::*, px, uniform_list,
 };
 use recto_core::PageId;
@@ -109,7 +110,8 @@ impl Viewer {
                     self.sidebar.thumbnails.scroll_to_item(current, ScrollStrategy::Center);
                 }
                 self.release_far_thumbnails(window, cx);
-                uniform_list("thumbnails", page_count, cx.processor(Self::thumbnail_rows))
+                // One more row than pages: dropping on it moves pages to the end.
+                uniform_list("thumbnails", page_count + 1, cx.processor(Self::thumbnail_rows))
                     .track_scroll(self.sidebar.thumbnails.clone())
                     .flex_1()
                     .into_any_element()
@@ -174,9 +176,11 @@ impl Viewer {
         let State::Open(open) = &mut self.state else { return Vec::new() };
         let Some(info) = &open.info else { return Vec::new() };
         let sizes = &info.page_sizes;
+        let count = sizes.len().min(open.page_states.len());
+        let order: Vec<PageId> = open.page_states.iter().map(|page| page.id).collect();
 
         // Ask for the thumbnails that are neither cached nor on their way.
-        for index in range.clone() {
+        for index in range.clone().filter(|&index| index < count) {
             if open.thumbnails.contains_key(&index) || !open.thumbnails_in_flight.insert(index) {
                 continue;
             }
@@ -193,17 +197,8 @@ impl Viewer {
 
         range
             .map(|index| {
-                let (width, height) = thumb_size(sizes[index]);
-                let mut page = div()
-                    .w(px(width))
-                    .h(px(height))
-                    .bg(theme.placeholder)
-                    .border_2()
-                    .border_color(if index == current { theme.accent } else { theme.border });
-                if let Some(image) = open.thumbnails.get(&index) {
-                    page = page.child(img(image.clone()).size_full());
-                }
-                div()
+                // The row after the last page only takes drops, to put pages at the end.
+                let row = div()
                     .id(("thumbnail", index))
                     .w_full()
                     .h(px(ROW))
@@ -212,7 +207,34 @@ impl Viewer {
                     .items_center()
                     .justify_center()
                     .gap(px(6.))
-                    .cursor_pointer()
+                    .drag_over::<DraggedPages>(move |style, _, _, _| style.border_t_2().border_color(theme.accent))
+                    .on_drop(cx.listener(move |viewer, dragged: &DraggedPages, window, cx| {
+                        viewer.move_pages(dragged.pages.clone(), index, window, cx);
+                    }))
+                    .drag_over::<ExternalPaths>(move |style, _, _, _| style.border_t_2().border_color(theme.accent))
+                    .on_drop(cx.listener(move |viewer, paths: &ExternalPaths, window, cx| {
+                        // Merge here, rather than open the file in place of this one.
+                        cx.stop_propagation();
+                        viewer.insert_files(paths.paths(), index, window, cx);
+                    }));
+                if index >= count {
+                    return row.child(div().text_xs().text_color(theme.muted).child(t("Drop here to put pages at the end"))).into_any_element();
+                }
+                let id = open.page_states[index].id;
+                let selected = self.rail.contains(id);
+                let (width, height) = thumb_size(sizes[index]);
+                let mut page = div()
+                    .w(px(width))
+                    .h(px(height))
+                    .bg(theme.placeholder)
+                    .border_2()
+                    .border_color(if selected || index == current { theme.accent } else { theme.border });
+                if let Some(image) = open.thumbnails.get(&index) {
+                    page = page.child(img(image.clone()).size_full());
+                }
+                let dragged = DraggedPages { pages: self.rail.dragged(&order, index) };
+                row.cursor_pointer()
+                    .when(selected, |row| row.bg(theme.selection))
                     .child(page)
                     .child(
                         div()
@@ -220,7 +242,18 @@ impl Viewer {
                             .text_color(if index == current { theme.text } else { theme.muted })
                             .child(SharedString::from((index + 1).to_string())),
                     )
-                    .on_click(cx.listener(move |viewer, _, window, cx| viewer.go_to_page(index, window, cx)))
+                    .on_drag(dragged, |dragged, _, _, cx| cx.new(|_| DragPreview { count: dragged.pages.len() }))
+                    .on_click(cx.listener(move |viewer, event: &ClickEvent, window, cx| {
+                        let modifiers = event.modifiers();
+                        let order = viewer.page_order();
+                        if modifiers.secondary() || modifiers.shift {
+                            viewer.rail.click(&order, index, modifiers.secondary(), modifiers.shift);
+                            cx.notify();
+                        } else {
+                            viewer.rail.click(&order, index, false, false);
+                            viewer.go_to_page(index, window, cx);
+                        }
+                    }))
                     .into_any_element()
             })
             .collect()
@@ -271,5 +304,23 @@ pub(super) fn store_thumbnail(open: &mut Open, index: usize, bitmap: recto_rende
         && let Some(old) = open.thumbnails.insert(index, image)
     {
         cx.drop_image(old, None);
+    }
+}
+
+/// Pages being dragged in the rail.
+#[derive(Clone)]
+pub struct DraggedPages {
+    pages: Vec<PageId>,
+}
+
+/// What follows the pointer while dragging pages.
+struct DragPreview {
+    count: usize,
+}
+
+impl gpui::Render for DragPreview {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let label = if self.count == 1 { t("1 page").to_owned() } else { format!("{} {}", self.count, t("pages")) };
+        div().px(px(8.)).py(px(4.)).rounded(px(4.)).bg(gpui::rgb(0x2f6fdf)).text_color(gpui::white()).text_sm().child(label)
     }
 }
