@@ -1,6 +1,6 @@
 # 0003 — Form filling and flattening in recto-core, not through PDFium
 
-**Status:** accepted, 2026-10-22. Amends 0001 for forms.
+**Status:** proposed, 2026-10-22, pending the owner's review. Would amend 0001 for forms; the code on `dev` already follows it.
 
 ## Context
 
