@@ -7,7 +7,7 @@ crates/
   recto-core     document model, edit operations, undo/redo, save        (pure Rust, no UI)
   recto-render   Renderer trait + backends (PDFium now, hayro later)     (no UI)
   recto-app      GPUI application, binary "recto"                        (depends on both)
-xtask/           fetch-pdfium, bundle, release                            (M0)
+xtask/           fetch-pdfium, gen-fixtures (M0); bundle, release (M6)
 tests/fixtures/  small PDFs used by integration tests
 ```
 
@@ -26,15 +26,16 @@ tests/fixtures/  small PDFs used by integration tests
 ### recto-render: the renderer
 
 ```rust
-pub trait Renderer: Send {
-    fn open(&mut self, bytes: Arc<[u8]>, password: Option<&str>) -> Result<DocInfo>;
-    fn render(&mut self, req: RenderRequest) -> Result<Bitmap>;      // page, scale, rotation, clip
-    fn text(&mut self, page: usize) -> Result<Vec<TextSpan>>;        // glyph boxes for selection/search
-    fn form_fields(&mut self, page: usize) -> Result<Vec<FormField>>;
+pub trait Renderer {                                                 // built on the render thread, never leaves it
+    fn open(&mut self, bytes: Arc<[u8]>, password: Option<&str>) -> Result<usize>;   // page count (M0)
+    fn render(&mut self, req: &RenderRequest) -> Result<Bitmap>;     // page, scale (rotation, clip later)
+    fn text(&mut self, page: usize) -> Result<Vec<TextSpan>>;        // M1: glyph boxes for selection/search
+    fn form_fields(&mut self, page: usize) -> Result<Vec<FormField>>; // M3
 }
 ```
 
-* **PDFium is not thread-safe.** One dedicated render thread owns the `Pdfium` instance. The UI sends `RenderRequest`s over a `flume` channel and receives bitmaps back. Requests carry a generation number; stale ones (old zoom, scrolled away) are dropped before rendering.
+* **PDFium is not thread-safe.** One dedicated render thread owns the `Pdfium` instance. `RenderThread::spawn(PdfiumRenderer::new)` takes a constructor and runs it *on* the thread, so the backend is never moved across threads and needs no `Send` bound. The UI sends `RenderRequest`s over a `flume` channel and receives bitmaps back. Requests carry a generation number (`RenderThread::next_generation`); stale ones (old zoom, scrolled away) are dropped before rendering.
+* **Loading PDFium**: `RECTO_PDFIUM_DIR` if set, then the executable's folder, then (debug builds only) `target/pdfium/` as filled by `cargo xtask fetch-pdfium`.
 * **Tiles**: at high zoom a page is rendered as 512×512 tiles, so only the visible part is rasterised. An LRU cache keyed by `(PageId, scale bucket, tile)` holds results.
 * **Backends** are cargo features: `pdfium` (default), `hayro` (pure Rust, experimental). Switching backend must need zero changes outside this crate.
 
