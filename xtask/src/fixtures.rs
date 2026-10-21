@@ -4,7 +4,7 @@ use std::io::Write;
 use std::path::Path;
 
 use anyhow::Result;
-use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref, Str};
+use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref, Str, TextStr};
 
 /// Committed fixtures, by file name.
 type Fixture = (&'static str, fn() -> Vec<u8>);
@@ -24,7 +24,7 @@ pub fn generate(root: &Path) -> Result<()> {
 pub fn generate_large(root: &Path, pages: usize) -> Result<()> {
     let path = root.join("target/large.pdf");
     let specs: Vec<_> = (0..pages).map(|_| (A4, 0)).collect();
-    std::fs::write(&path, text_pages(&specs))?;
+    std::fs::write(&path, text_pages(&specs, &[]))?;
     println!("wrote {} ({pages} pages)", path.display());
     Ok(())
 }
@@ -34,13 +34,16 @@ const A4_LANDSCAPE: Rect = Rect { x1: 0.0, y1: 0.0, x2: 842.0, y2: 595.0 };
 const LETTER: Rect = Rect { x1: 0.0, y1: 0.0, x2: 612.0, y2: 792.0 };
 const IMAGE_SIZE: u32 = 64;
 
-/// Mixed page geometry: A4 portrait, A4 landscape, A4 portrait with `/Rotate 90`, US Letter.
+/// Mixed page geometry: A4 portrait, A4 landscape, A4 portrait with `/Rotate 90`, US Letter;
+/// and a two-level outline.
 pub fn layout_pdf() -> Vec<u8> {
-    text_pages(&[(A4, 0), (A4_LANDSCAPE, 0), (A4, 90), (LETTER, 0)])
+    let outline = [("Portrait", 0, 0), ("Landscape", 1, 1), ("Rotated", 0, 2), ("Letter", 0, 3)];
+    text_pages(&[(A4, 0), (A4_LANDSCAPE, 0), (A4, 90), (LETTER, 0)], &outline)
 }
 
-/// One line of Helvetica per page, on pages of the given media box and rotation.
-fn text_pages(specs: &[(Rect, i32)]) -> Vec<u8> {
+/// One line of Helvetica per page, on pages of the given media box and rotation, plus an outline
+/// of `(title, depth, page index)` entries in reading order.
+fn text_pages(specs: &[(Rect, i32)], outline: &[(&str, usize, usize)]) -> Vec<u8> {
     let catalog_id = Ref::new(1);
     let tree_id = Ref::new(2);
     let font_id = Ref::new(3);
@@ -48,7 +51,12 @@ fn text_pages(specs: &[(Rect, i32)]) -> Vec<u8> {
     let page_ids: Vec<Ref> = (0..specs.len() as i32).map(|i| Ref::new(10 + 2 * i)).collect();
 
     let mut pdf = Pdf::new();
-    pdf.catalog(catalog_id).pages(tree_id);
+    let mut catalog = pdf.catalog(catalog_id);
+    catalog.pages(tree_id);
+    if !outline.is_empty() {
+        catalog.outlines(Ref::new(4));
+    }
+    catalog.finish();
     pdf.pages(tree_id).kids(page_ids.iter().copied()).count(specs.len() as i32);
     pdf.type1_font(font_id).base_font(Name(b"Helvetica"));
     for (n, (&(media_box, rotate), &page_id)) in specs.iter().zip(&page_ids).enumerate() {
@@ -67,7 +75,46 @@ fn text_pages(specs: &[(Rect, i32)]) -> Vec<u8> {
         content.end_text();
         pdf.stream(content_id, &content.finish());
     }
+    if !outline.is_empty() {
+        write_outline(&mut pdf, Ref::new(4), Ref::new(10 + 2 * specs.len() as i32), &page_ids, outline);
+    }
     pdf.finish()
+}
+
+/// Writes the outline dictionary at `root` (already referenced by the catalog) and its items,
+/// numbered from `first_item`.
+fn write_outline(pdf: &mut Pdf, root: Ref, first_item: Ref, pages: &[Ref], items: &[(&str, usize, usize)]) {
+    let id = |i: usize| Ref::new(first_item.get() + i as i32);
+    // Parent of each item: the closest earlier item one level up.
+    let parents: Vec<Option<usize>> =
+        (0..items.len()).map(|i| (0..i).rev().find(|&j| items[j].1 + 1 == items[i].1)).collect();
+    let children = |parent: Option<usize>| -> Vec<usize> { (0..items.len()).filter(|&i| parents[i] == parent).collect() };
+
+    let top = children(None);
+    let mut outline = pdf.outline(root);
+    if let (Some(&first), Some(&last)) = (top.first(), top.last()) {
+        outline.first(id(first)).last(id(last));
+    }
+    outline.count(items.len() as i32);
+    outline.finish();
+
+    for (i, &(title, _, page)) in items.iter().enumerate() {
+        let siblings = children(parents[i]);
+        let at = siblings.iter().position(|&s| s == i).expect("an item is its parent's child");
+        let own = children(Some(i));
+        let mut item = pdf.outline_item(id(i));
+        item.title(TextStr(title)).parent(parents[i].map_or(root, id));
+        if at > 0 {
+            item.prev(id(siblings[at - 1]));
+        }
+        if let Some(&next) = siblings.get(at + 1) {
+            item.next(id(next));
+        }
+        if let (Some(&first), Some(&last)) = (own.first(), own.last()) {
+            item.first(id(first)).last(id(last)).count(own.len() as i32);
+        }
+        item.dest().page(pages[page]).xyz(0.0, 842.0, None);
+    }
 }
 
 /// Three A4 pages of Helvetica text; page 1 also carries a colour band and a gradient image.
