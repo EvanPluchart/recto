@@ -2,6 +2,7 @@
 //! Opens one document in a continuous, zoomable page view.
 
 mod i18n;
+mod text_input;
 mod theme;
 mod viewer;
 

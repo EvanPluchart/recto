@@ -20,6 +20,7 @@ const FR: &[(&str, &str)] = &[
     ("Fit page", "Page entière"),
     ("−", "−"),
     ("+", "+"),
+    ("Page", "Page"),
 ];
 
 fn lang() -> Lang {

@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use gpui::{
-    AnyElement, App, Context, FocusHandle, Focusable, IntoElement, KeyBinding, ParentElement, Render, RenderImage,
+    AnyElement, App, Context, Entity, FocusHandle, Focusable, IntoElement, KeyBinding, ParentElement, Render, RenderImage,
     ScrollHandle, ScrollWheelEvent, SharedString, Styled, Window, WindowAppearance, actions, div, img, point,
     prelude::*, px,
 };
@@ -16,11 +16,17 @@ use recto_render::{Bitmap, DocInfo, PdfiumRenderer, RenderRequest, RenderThread,
 
 use crate::Args;
 use crate::i18n::t;
+use crate::text_input::{TextInput, TextInputEvent};
 use crate::theme::Theme;
 
-actions!(viewer, [ZoomIn, ZoomOut, ActualSize, FitWidth, FitPage]);
+actions!(
+    viewer,
+    [ZoomIn, ZoomOut, ActualSize, FitWidth, FitPage, GoToPage, LineDown, LineUp, ScreenDown, ScreenUp, FirstPage, LastPage]
+);
 
 const TOOLBAR_HEIGHT: f32 = 40.0;
+/// Arrow-key scroll step, in logical pixels.
+const LINE: f32 = 48.0;
 /// Pages rendered beyond the viewport, in viewport heights, so scrolling finds them ready.
 const PRERENDER: f32 = 1.0;
 /// Bitmaps kept around the visible pages before being released.
@@ -71,14 +77,26 @@ pub struct Viewer {
     zoom: ZoomMode,
     scroll: ScrollHandle,
     focus: FocusHandle,
+    page_input: Entity<TextInput>,
 }
 
 impl Viewer {
     pub fn new(args: Args, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let dark = args.dark.unwrap_or(matches!(window.appearance(), WindowAppearance::Dark | WindowAppearance::VibrantDark));
+        let theme = Theme::new(dark);
         let zoom = args.zoom.map_or(ZoomMode::FitWidth, |pct| ZoomMode::Fixed((pct / 100.0).clamp(MIN_ZOOM, MAX_ZOOM)));
+        let page_input = cx.new(|cx| TextInput::new("", |c| c.is_ascii_digit(), theme, cx));
+        cx.subscribe_in(&page_input, window, |this, _, event, window, cx| {
+            if let TextInputEvent::Commit(text) = event
+                && let Ok(page) = text.trim().parse::<usize>()
+            {
+                this.go_to_page(page.saturating_sub(1), window, cx);
+            }
+            window.focus(&this.focus);
+        })
+        .detach();
         let mut viewer =
-            Self { state: State::Empty, theme: Theme::new(dark), zoom, scroll: ScrollHandle::new(), focus: cx.focus_handle() };
+            Self { state: State::Empty, theme, zoom, scroll: ScrollHandle::new(), focus: cx.focus_handle(), page_input };
         if let Some(path) = &args.file {
             viewer.state = match viewer.start(path, args.page, cx) {
                 Ok(open) => State::Open(Box::new(open)),
@@ -213,6 +231,25 @@ impl Viewer {
         cx.notify();
     }
 
+    /// Scrolls so page `index` (clamped) starts at the top of the viewport.
+    fn go_to_page(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let viewport = self.viewport(window);
+        let Some(layout) = self.open().and_then(|open| open.layout.as_ref()) else { return };
+        let position = layout.scroll_to_page(index.min(layout.boxes.len().saturating_sub(1)), viewport);
+        self.set_scroll_position(Point { x: self.scroll_position().x, y: position.y });
+        cx.notify();
+    }
+
+    /// Scrolls vertically by `delta` logical pixels, within the content.
+    fn scroll_by(&mut self, delta: f32, window: &mut Window, cx: &mut Context<Self>) {
+        let viewport = self.viewport(window);
+        let Some(layout) = self.open().and_then(|open| open.layout.as_ref()) else { return };
+        let max = layout.max_scroll(viewport);
+        let position = self.scroll_position();
+        self.set_scroll_position(Point { x: position.x, y: (position.y + delta).clamp(0.0, max.y) });
+        cx.notify();
+    }
+
     fn step_zoom(&mut self, up: bool, window: &mut Window, cx: &mut Context<Self>) {
         let zoom = self.current_zoom();
         let next = if up {
@@ -303,13 +340,21 @@ impl Viewer {
 
     fn toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = self.theme;
-        let (page_label, zoom_label) = match self.open().and_then(|open| open.info.as_ref().zip(open.layout.as_ref())) {
-            Some((info, layout)) => (
-                format!("{} / {}", self.current_page() + 1, info.page_count()),
-                format!("{:.0} %", layout.zoom * 100.0),
-            ),
-            None => (String::new(), String::new()),
+        let (page_count, zoom_label) = match self.open().and_then(|open| open.info.as_ref().zip(open.layout.as_ref())) {
+            Some((info, layout)) => (Some(info.page_count()), format!("{:.0} %", layout.zoom * 100.0)),
+            None => (None, String::new()),
         };
+        let page_field = page_count.map(|count| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .px(px(8.))
+                .text_color(theme.muted)
+                .child(t("Page"))
+                .child(div().w(px(52.)).text_color(theme.text).child(self.page_input.clone()))
+                .child(format!("/ {count}"))
+        });
         let button = |id: &'static str, label: &'static str| {
             div()
                 .id(id)
@@ -344,7 +389,7 @@ impl Viewer {
                     .on_click(cx.listener(|this, _, window, cx| this.set_zoom(ZoomMode::FitPage, None, window, cx))),
             )
             .child(div().flex_1())
-            .child(div().px(px(8.)).text_color(theme.muted).child(page_label))
+            .children(page_field)
     }
 
     fn pages(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
@@ -410,6 +455,11 @@ impl Focusable for Viewer {
 impl Render for Viewer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.update_layout(window, cx);
+        // The page field follows the scroll, except while the reader is typing in it.
+        if !self.page_input.focus_handle(cx).is_focused(window) {
+            let current = (self.current_page() + 1).to_string();
+            self.page_input.update(cx, |input, cx| input.set_text(current, cx));
+        }
         div()
             .key_context("Viewer")
             .track_focus(&self.focus)
@@ -418,6 +468,21 @@ impl Render for Viewer {
             .on_action(cx.listener(|this, _: &ActualSize, window, cx| this.set_zoom(ZoomMode::Fixed(1.0), None, window, cx)))
             .on_action(cx.listener(|this, _: &FitWidth, window, cx| this.set_zoom(ZoomMode::FitWidth, None, window, cx)))
             .on_action(cx.listener(|this, _: &FitPage, window, cx| this.set_zoom(ZoomMode::FitPage, None, window, cx)))
+            .on_action(cx.listener(|this, _: &GoToPage, window, cx| {
+                this.page_input.update(cx, |input, cx| input.focus_all(window, cx));
+            }))
+            .on_action(cx.listener(|this, _: &LineDown, window, cx| this.scroll_by(LINE, window, cx)))
+            .on_action(cx.listener(|this, _: &LineUp, window, cx| this.scroll_by(-LINE, window, cx)))
+            .on_action(cx.listener(|this, _: &ScreenDown, window, cx| {
+                let step = this.viewport(window).height * 0.9;
+                this.scroll_by(step, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &ScreenUp, window, cx| {
+                let step = this.viewport(window).height * 0.9;
+                this.scroll_by(-step, window, cx);
+            }))
+            .on_action(cx.listener(|this, _: &FirstPage, window, cx| this.go_to_page(0, window, cx)))
+            .on_action(cx.listener(|this, _: &LastPage, window, cx| this.go_to_page(usize::MAX, window, cx)))
             .size_full()
             .flex()
             .flex_col()
@@ -428,6 +493,8 @@ impl Render for Viewer {
 }
 
 pub fn bind_keys(cx: &mut App) {
+    // Plain keys must not fire while a text field has focus.
+    const PAGES: Option<&str> = Some("Viewer && !TextInput");
     cx.bind_keys([
         KeyBinding::new("secondary-=", ZoomIn, Some("Viewer")),
         KeyBinding::new("secondary-+", ZoomIn, Some("Viewer")),
@@ -435,6 +502,15 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-0", ActualSize, Some("Viewer")),
         KeyBinding::new("secondary-1", FitWidth, Some("Viewer")),
         KeyBinding::new("secondary-2", FitPage, Some("Viewer")),
+        KeyBinding::new("secondary-g", GoToPage, Some("Viewer")),
+        KeyBinding::new("down", LineDown, PAGES),
+        KeyBinding::new("up", LineUp, PAGES),
+        KeyBinding::new("pagedown", ScreenDown, PAGES),
+        KeyBinding::new("space", ScreenDown, PAGES),
+        KeyBinding::new("pageup", ScreenUp, PAGES),
+        KeyBinding::new("shift-space", ScreenUp, PAGES),
+        KeyBinding::new("home", FirstPage, PAGES),
+        KeyBinding::new("end", LastPage, PAGES),
     ]);
 }
 
