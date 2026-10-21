@@ -21,6 +21,10 @@ const FR: &[(&str, &str)] = &[
     ("−", "−"),
     ("+", "+"),
     ("Page", "Page"),
+    ("Sidebar", "Panneau"),
+    ("Thumbnails", "Vignettes"),
+    ("Outline", "Signets"),
+    ("This document has no outline.", "Ce document n’a pas de signets."),
 ];
 
 fn lang() -> Lang {

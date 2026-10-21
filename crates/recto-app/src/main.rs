@@ -1,4 +1,4 @@
-//! Recto binary: `recto [file.pdf] [--page=N] [--zoom=PCT] [--dark|--light]`.
+//! Recto binary: `recto [file.pdf] [--page=N] [--zoom=PCT] [--sidebar=thumbnails|outline] [--dark|--light]`.
 //! Opens one document in a continuous, zoomable page view.
 
 mod i18n;
@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use gpui::{App, AppContext, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions, px, size};
 
 use crate::i18n::t;
-use crate::viewer::Viewer;
+use crate::viewer::{Tab, Viewer};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Args {
@@ -22,16 +22,20 @@ pub struct Args {
     pub zoom: Option<f32>,
     /// `Some(true)` for `--dark`, `Some(false)` for `--light`, `None` to follow the system.
     pub dark: Option<bool>,
+    /// Sidebar shown at start (`--sidebar=thumbnails|outline`).
+    pub sidebar: Option<Tab>,
 }
 
 impl Args {
     fn parse(args: impl IntoIterator<Item = String>) -> Self {
-        let mut parsed = Args { file: None, page: 1, zoom: None, dark: None };
+        let mut parsed = Args { file: None, page: 1, zoom: None, dark: None, sidebar: None };
         for arg in args {
             if let Some(n) = arg.strip_prefix("--page=") {
                 parsed.page = n.parse().ok().filter(|&n| n >= 1).unwrap_or(1);
             } else if let Some(pct) = arg.strip_prefix("--zoom=") {
                 parsed.zoom = pct.trim_end_matches('%').parse().ok().filter(|z: &f32| z.is_finite() && *z > 0.0);
+            } else if let Some(name) = arg.strip_prefix("--sidebar=") {
+                parsed.sidebar = Tab::parse(name);
             } else if arg == "--dark" {
                 parsed.dark = Some(true);
             } else if arg == "--light" {
@@ -81,13 +85,15 @@ mod tests {
 
     #[test]
     fn parses_test_flags() {
-        let args = parse("a.pdf --page=3 --zoom=150 --dark");
-        assert_eq!(args, Args { file: Some("a.pdf".into()), page: 3, zoom: Some(150.0), dark: Some(true) });
+        let args = parse("a.pdf --page=3 --zoom=150 --dark --sidebar=outline");
+        let expected =
+            Args { file: Some("a.pdf".into()), page: 3, zoom: Some(150.0), dark: Some(true), sidebar: Some(Tab::Outline) };
+        assert_eq!(args, expected);
     }
 
     #[test]
     fn falls_back_on_bad_values() {
         let args = parse("--page=0 --zoom=abc --light");
-        assert_eq!(args, Args { file: None, page: 1, zoom: None, dark: Some(false) });
+        assert_eq!(args, Args { file: None, page: 1, zoom: None, dark: Some(false), sidebar: None });
     }
 }

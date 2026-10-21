@@ -14,6 +14,10 @@ use recto_core::layout::{self, PageLayout};
 use recto_core::{Document, PageId};
 use recto_render::{Bitmap, DocInfo, PdfiumRenderer, Purpose, RenderRequest, RenderThread, Response};
 
+mod sidebar;
+
+pub use self::sidebar::Tab;
+use self::sidebar::Sidebar;
 use crate::Args;
 use crate::i18n::t;
 use crate::text_input::{TextInput, TextInputEvent};
@@ -21,7 +25,10 @@ use crate::theme::Theme;
 
 actions!(
     viewer,
-    [ZoomIn, ZoomOut, ActualSize, FitWidth, FitPage, GoToPage, LineDown, LineUp, ScreenDown, ScreenUp, FirstPage, LastPage]
+    [
+        ZoomIn, ZoomOut, ActualSize, FitWidth, FitPage, GoToPage, LineDown, LineUp, ScreenDown, ScreenUp, FirstPage,
+        LastPage, ToggleThumbnails, ToggleOutline
+    ]
 );
 
 const TOOLBAR_HEIGHT: f32 = 40.0;
@@ -61,6 +68,10 @@ struct Open {
     /// Device pixels per point for the current zoom; a change starts a new render generation.
     render_scale: f32,
     generation: u64,
+    /// Pages whose render failed; they show a message instead of a bitmap.
+    failed: HashSet<usize>,
+    thumbnails: HashMap<usize, Arc<RenderImage>>,
+    thumbnails_in_flight: HashSet<usize>,
     /// Page to scroll to once the first layout exists (from `--page`).
     pending_page: Option<usize>,
 }
@@ -78,6 +89,7 @@ pub struct Viewer {
     scroll: ScrollHandle,
     focus: FocusHandle,
     page_input: Entity<TextInput>,
+    sidebar: Sidebar,
 }
 
 impl Viewer {
@@ -95,8 +107,15 @@ impl Viewer {
             window.focus(&this.focus);
         })
         .detach();
-        let mut viewer =
-            Self { state: State::Empty, theme, zoom, scroll: ScrollHandle::new(), focus: cx.focus_handle(), page_input };
+        let mut viewer = Self {
+            state: State::Empty,
+            theme,
+            zoom,
+            scroll: ScrollHandle::new(),
+            focus: cx.focus_handle(),
+            page_input,
+            sidebar: Sidebar::new(args.sidebar),
+        };
         if let Some(path) = &args.file {
             viewer.state = match viewer.start(path, args.page, cx) {
                 Ok(open) => State::Open(Box::new(open)),
@@ -129,6 +148,9 @@ impl Viewer {
             in_flight: HashSet::new(),
             render_scale: 0.0,
             generation: 0,
+            failed: HashSet::new(),
+            thumbnails: HashMap::new(),
+            thumbnails_in_flight: HashSet::new(),
             pending_page: Some(page.saturating_sub(1)),
         })
     }
@@ -141,6 +163,13 @@ impl Viewer {
                 open.info = Some(info);
             }
             Response::Opened(Err(e)) => self.state = State::Error(failure("Cannot open the document", e)),
+            Response::Rendered { request, result } if request.purpose == Purpose::Thumbnail => match result {
+                Ok(bitmap) => sidebar::store_thumbnail(open, request.index, bitmap, cx),
+                // A missing thumbnail is not worth an error: the page itself reports it.
+                Err(_) => {
+                    open.thumbnails_in_flight.remove(&request.index);
+                }
+            },
             Response::Rendered { request, result } => {
                 open.in_flight.remove(&(request.index, scale_key(request.scale)));
                 match result {
@@ -154,7 +183,10 @@ impl Viewer {
                             cx.drop_image(old.image, None);
                         }
                     }
-                    Err(e) => self.state = State::Error(failure("Cannot render the page", e)),
+                    Err(e) => {
+                        eprintln!("recto: page {}: {e:#}", request.index + 1);
+                        open.failed.insert(request.index);
+                    }
                 }
             }
         }
@@ -168,7 +200,7 @@ impl Viewer {
             Size { width: f32::from(bounds.size.width), height: f32::from(bounds.size.height) }
         } else {
             let size = window.viewport_size();
-            Size { width: f32::from(size.width), height: (f32::from(size.height) - TOOLBAR_HEIGHT).max(1.0) }
+            Size { width: (f32::from(size.width) - self.sidebar.width()).max(1.0), height: (f32::from(size.height) - TOOLBAR_HEIGHT).max(1.0) }
         }
     }
 
@@ -307,6 +339,8 @@ impl Viewer {
             open.render_scale = render_scale;
             open.generation = open.renderer.next_generation();
             open.in_flight.clear();
+            // Queued thumbnails were dropped with the old generation too.
+            open.thumbnails_in_flight.clear();
         }
 
         // Visible pages first, then the ones around them, nearest first.
@@ -378,6 +412,10 @@ impl Viewer {
             .border_color(theme.border)
             .text_color(theme.text)
             .text_sm()
+            .child(
+                button("sidebar", "Sidebar")
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(Tab::Thumbnails, cx))),
+            )
             .child(button("zoom-out", "−").on_click(cx.listener(|this, _, window, cx| this.step_zoom(false, window, cx))))
             .child(div().w(px(56.)).flex().justify_center().child(zoom_label))
             .child(button("zoom-in", "+").on_click(cx.listener(|this, _, window, cx| this.step_zoom(true, window, cx))))
@@ -432,6 +470,13 @@ impl Viewer {
             // A bitmap from another zoom level is stretched until the right one arrives.
             content = content.child(match open.pages.get(&index) {
                 Some(cached) => frame.child(img(cached.image.clone()).size_full()),
+                None if open.failed.contains(&index) => frame
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_sm()
+                    .text_color(theme.muted)
+                    .child(t("Cannot render the page")),
                 None => frame,
             });
         }
@@ -464,6 +509,8 @@ impl Render for Viewer {
         div()
             .key_context("Viewer")
             .track_focus(&self.focus)
+            .on_action(cx.listener(|this, _: &ToggleThumbnails, _, cx| this.toggle_sidebar(Tab::Thumbnails, cx)))
+            .on_action(cx.listener(|this, _: &ToggleOutline, _, cx| this.toggle_sidebar(Tab::Outline, cx)))
             .on_action(cx.listener(|this, _: &ZoomIn, window, cx| this.step_zoom(true, window, cx)))
             .on_action(cx.listener(|this, _: &ZoomOut, window, cx| this.step_zoom(false, window, cx)))
             .on_action(cx.listener(|this, _: &ActualSize, window, cx| this.set_zoom(ZoomMode::Fixed(1.0), None, window, cx)))
@@ -489,7 +536,7 @@ impl Render for Viewer {
             .flex_col()
             .bg(self.theme.canvas)
             .child(self.toolbar(cx))
-            .child(self.pages(window, cx))
+            .child(div().flex().flex_1().min_h_0().children(self.sidebar(window, cx)).child(self.pages(window, cx)))
     }
 }
 
@@ -504,6 +551,8 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-1", FitWidth, Some("Viewer")),
         KeyBinding::new("secondary-2", FitPage, Some("Viewer")),
         KeyBinding::new("secondary-g", GoToPage, Some("Viewer")),
+        KeyBinding::new("f4", ToggleThumbnails, Some("Viewer")),
+        KeyBinding::new("shift-f4", ToggleOutline, Some("Viewer")),
         KeyBinding::new("down", LineDown, PAGES),
         KeyBinding::new("up", LineUp, PAGES),
         KeyBinding::new("pagedown", ScreenDown, PAGES),
