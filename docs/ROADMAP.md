@@ -2,7 +2,7 @@
 
 Each milestone ends with something you can run and show. Estimates are evenings of side-project time.
 
-## M0 — Skeleton (1 week)
+## M0 — Skeleton (1 week) — done 2026-10-21
 
 * Workspace compiles on Windows, macOS and Linux (GitHub Actions matrix).
 * `cargo xtask fetch-pdfium` downloads the pinned PDFium build for the host.
@@ -10,7 +10,9 @@ Each milestone ends with something you can run and show. Estimates are evenings 
 
 **Done when:** the same command shows a PDF on all three systems in CI screenshots or by hand.
 
-## M1 — Viewer (2–3 weeks)
+**Status:** CI is green on Windows, macOS and Linux (build, tests, PDFium render of the fixture). The window was checked by hand on Windows only; macOS and Linux still need a manual look.
+
+## M1 — Viewer (2–3 weeks) — current
 
 * Continuous scroll, zoom (fit width, fit page, %), tiles at high zoom.
 * Thumbnail rail, outline (bookmarks), page number field.
