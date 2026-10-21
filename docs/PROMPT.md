@@ -21,7 +21,8 @@ You are building **Recto**, a cross-platform PDF viewer and editor in Rust. Read
 
 * Respect the hard rules in `CLAUDE.md`, in particular: no `gpui` in `recto-core` or `recto-render`, only the render thread touches PDFium.
 * If a decision record turns out to be wrong in practice, stop and explain instead of working around it.
-* Commit in small steps with conventional messages (`feat(render): …`). No AI attribution lines.
+* Work on the `dev` branch. Commit in small steps with conventional messages (`feat(render): …`), push to `origin/dev` when done. Never push to `main`. No AI attribution lines.
+* The repository is private: keep CI lean (no scheduled runs, cache cargo builds) to save GitHub Actions minutes.
 
 ## Done when
 
