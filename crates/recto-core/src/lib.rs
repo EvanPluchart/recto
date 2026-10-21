@@ -5,6 +5,7 @@ pub mod document;
 pub mod geom;
 pub mod layout;
 pub mod op;
+pub mod text;
 
 pub use document::{Document, OpenError};
 
