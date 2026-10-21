@@ -33,7 +33,7 @@ impl Locked {
 impl Viewer {
     fn unlock(&mut self, password: String, window: &mut Window, cx: &mut Context<Self>) {
         let State::Locked(locked) = &mut self.state else { return };
-        if !locked.document.check_password(&password) {
+        if !locked.document.unlock(&password) {
             locked.wrong = true;
             locked.input.update(cx, |input, cx| input.focus_all(window, cx));
             cx.notify();
