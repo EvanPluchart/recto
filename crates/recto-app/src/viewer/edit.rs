@@ -6,13 +6,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use gpui::{Context, PathPromptOptions, Window};
-use recto_core::geom::{PageGeometry, Size};
+use recto_core::annot::{Annotation, Color, Font, Kind};
+use recto_core::geom::{PageRect, Point, Size};
 use recto_core::op::{Op, PageState, Rotation};
 use recto_core::{BuildError, PageId};
 use recto_render::DocInfo;
 
+use super::annotate::Tool;
 use super::rail::move_target;
-use super::{Open, State, Viewer, failure};
+use super::{Known, Open, State, Viewer, failure};
 use crate::i18n::t;
 
 /// One edit from the `--apply` test flag; pages are 1-based positions at the time it applies.
@@ -26,11 +28,19 @@ pub enum EditSpec {
     /// A blank page after this one (0 for the start).
     Blank(usize),
     Undo,
+    /// An annotation drawn with `tool` on page `page`, through `points` (displayed page points);
+    /// `text` for text boxes.
+    Draw { tool: Tool, page: usize, points: Vec<Point>, text: String },
+    /// A form field value.
+    Fill { name: String, value: String },
 }
 
-/// `rotate:2,delete:3,move:4>1,blank:0,undo`.
+/// `rotate:2,delete:3,move:4>1,blank:0,undo`, and annotations in displayed page points:
+/// `rectangle:P:X:Y:W:H`, `ellipse:…`, `highlight:P:X:Y:W:H`, `arrow:P:X1:Y1:X2:Y2`,
+/// `line:…`, `freehand:P:X:Y:X:Y…`, `text:P:X:Y:TEXT`, and `fill:NAME=VALUE`.
 pub fn parse_edits(spec: &str) -> Result<Vec<EditSpec>, String> {
     let number = |text: &str| text.trim().parse::<usize>().map_err(|_| format!("not a page number: {text}"));
+    let coordinate = |text: &str| text.trim().parse::<f32>().map_err(|_| format!("not a coordinate: {text}"));
     spec.split(',')
         .filter(|part| !part.trim().is_empty())
         .map(|part| {
@@ -44,14 +54,45 @@ pub fn parse_edits(spec: &str) -> Result<Vec<EditSpec>, String> {
                     let (page, before) = value.split_once('>').ok_or_else(|| format!("expected move:N>M, got {part}"))?;
                     Ok(EditSpec::Move { page: number(page)?, before: number(before)? })
                 }
-                other => Err(format!("unknown edit: {other}")),
+                "fill" => {
+                    let (name, value) = value.split_once('=').ok_or_else(|| format!("expected fill:NAME=VALUE, got {part}"))?;
+                    Ok(EditSpec::Fill { name: name.to_owned(), value: value.to_owned() })
+                }
+                "text" => {
+                    let mut fields = value.splitn(4, ':');
+                    let (page, x, y, text) = (fields.next(), fields.next(), fields.next(), fields.next());
+                    let (Some(page), Some(x), Some(y), Some(text)) = (page, x, y, text) else {
+                        return Err(format!("expected text:P:X:Y:TEXT, got {part}"));
+                    };
+                    let at = Point { x: coordinate(x)?, y: coordinate(y)? };
+                    Ok(EditSpec::Draw { tool: Tool::Text, page: number(page)?, points: vec![at], text: text.to_owned() })
+                }
+                tool_name => {
+                    let tool = Tool::parse(tool_name).ok_or_else(|| format!("unknown edit: {tool_name}"))?;
+                    let mut fields = value.split(':');
+                    let page = number(fields.next().unwrap_or_default())?;
+                    let numbers = fields.map(coordinate).collect::<Result<Vec<f32>, _>>()?;
+                    let points: Vec<Point> = match tool {
+                        // X:Y:W:H → two corners.
+                        Tool::Rectangle | Tool::Ellipse | Tool::Highlight | Tool::Underline | Tool::StrikeOut
+                            if numbers.len() == 4 =>
+                        {
+                            vec![Point { x: numbers[0], y: numbers[1] }, Point { x: numbers[0] + numbers[2], y: numbers[1] + numbers[3] }]
+                        }
+                        Tool::Line | Tool::Arrow | Tool::Freehand if numbers.len() >= 4 && numbers.len() % 2 == 0 => {
+                            numbers.chunks(2).map(|pair| Point { x: pair[0], y: pair[1] }).collect()
+                        }
+                        _ => return Err(format!("wrong coordinates for {tool_name}: {part}")),
+                    };
+                    Ok(EditSpec::Draw { tool, page, points, text: String::new() })
+                }
             }
         })
         .collect()
 }
 
-/// What a background build produces: the new file, how its pages look, and which pages they are.
-type Built = Result<(Vec<u8>, Vec<PageGeometry>, Vec<PageState>), BuildError>;
+/// What a background build produces: the new file and what is known about its pages.
+type Built = Result<(Vec<u8>, Known), BuildError>;
 
 impl Viewer {
     /// Page identities in the order shown.
@@ -175,6 +216,7 @@ impl Viewer {
 
     /// Applies `--apply` edits right after opening.
     pub(super) fn apply_specs(&mut self, specs: &[EditSpec], window: &mut Window, cx: &mut Context<Self>) {
+        let inspector = self.inspector;
         let State::Open(open) = &mut self.state else { return };
         let document = &mut open.document;
         for spec in specs {
@@ -204,6 +246,41 @@ impl Viewer {
                 EditSpec::Undo => {
                     document.undo();
                 }
+                EditSpec::Fill { ref name, ref value } => {
+                    document.apply(Op::FillField { name: name.clone(), value: value.clone() });
+                }
+                EditSpec::Draw { tool, page: n, ref points, ref text } => {
+                    let pages = document.pages();
+                    let (Some(state), Ok(geometry)) = (n.checked_sub(1).and_then(|i| pages.get(i)), document.geometry_of(&pages))
+                    else {
+                        continue;
+                    };
+                    let page = geometry[n - 1];
+                    let user: Vec<_> = points.iter().map(|&p| page.to_user(p)).collect();
+                    let area = |a: Point, b: Point| {
+                        page.rect_to_user(PageRect { x: a.x.min(b.x), y: a.y.min(b.y), width: (a.x - b.x).abs(), height: (a.y - b.y).abs() })
+                    };
+                    let kind = match tool {
+                        Tool::Rectangle => Kind::Rectangle { rect: area(points[0], points[1]) },
+                        Tool::Ellipse => Kind::Ellipse { rect: area(points[0], points[1]) },
+                        Tool::Highlight => Kind::Highlight { quads: vec![area(points[0], points[1])] },
+                        Tool::Underline => Kind::Underline { quads: vec![area(points[0], points[1])] },
+                        Tool::StrikeOut => Kind::StrikeOut { quads: vec![area(points[0], points[1])] },
+                        Tool::Line | Tool::Arrow => Kind::Line { from: user[0], to: user[1], arrow: tool == Tool::Arrow },
+                        Tool::Freehand => Kind::Ink { strokes: vec![user] },
+                        Tool::Text => {
+                            let size = inspector.size;
+                            let at = points[0];
+                            let width = recto_core::annot::text_width(text, size, Font::Helvetica) + 6.0;
+                            let rect = page.rect_to_user(PageRect { x: at.x, y: at.y, width, height: size * 1.3 + 4.0 });
+                            Kind::Text { rect, text: text.clone(), size, font: Font::Helvetica, upright: page.rotate }
+                        }
+                        _ => continue,
+                    };
+                    let color = if tool == Tool::Highlight { Color::YELLOW } else { inspector.color };
+                    let annotation = Annotation { kind, color, width: inspector.width };
+                    document.apply(Op::AddAnnotation { page: state.id, annotation });
+                }
             }
         }
         self.rebuild(window, cx);
@@ -216,7 +293,11 @@ impl Viewer {
         let version = self.build_version;
         let snapshot = open.document.clone();
         let task = cx.background_executor().spawn(async move {
-            Ok((snapshot.build()?, snapshot.geometry()?, snapshot.pages()))
+            let pages = snapshot.pages();
+            let bytes = snapshot.build()?;
+            let geometry = snapshot.geometry_of(&pages)?;
+            let fields = snapshot.form_fields()?;
+            Ok((bytes, Known::with(&snapshot, pages, geometry, fields)))
         });
         cx.spawn_in(window, async move |this, cx| {
             let built: Built = task.await;
@@ -232,7 +313,7 @@ impl Viewer {
             return; // a later edit supersedes this build
         }
         match built {
-            Ok((bytes, geometry, pages)) => self.reload(bytes.into(), geometry, pages, window, cx),
+            Ok((bytes, known)) => self.reload(bytes.into(), known, window, cx),
             Err(error) => {
                 // Keep the log consistent with what is shown: the failed edit is undone.
                 if let State::Open(open) = &mut self.state {
@@ -247,35 +328,47 @@ impl Viewer {
 
     /// Shows rebuilt bytes: a new render thread, with the bitmaps of unchanged pages carried over
     /// and the layout ready at once (no flash while PDFium reopens the file).
-    fn reload(
-        &mut self,
-        bytes: Arc<[u8]>,
-        geometry: Vec<PageGeometry>,
-        pages: Vec<PageState>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn reload(&mut self, bytes: Arc<[u8]>, known: Known, window: &mut Window, cx: &mut Context<Self>) {
         let current = self.current_page();
         let State::Open(old) = std::mem::replace(&mut self.state, State::Empty) else { return };
-        let Open { document, page_states: old_pages, pages: mut old_bitmaps, thumbnails: mut old_thumbnails, info, renderer, .. } =
-            *old;
+        let Open {
+            document,
+            page_states: old_pages,
+            marks: old_marks,
+            pages: mut old_bitmaps,
+            thumbnails: mut old_thumbnails,
+            info,
+            renderer,
+            pending_page,
+            ..
+        } = *old;
         // Stop the old renderer before starting the new one.
         drop(renderer);
-        let anchor = old_pages.get(current).map(|page| page.id);
-        let shown = anchor.and_then(|id| pages.iter().position(|page| page.id == id)).unwrap_or(current);
-        let shown = shown.min(pages.len().saturating_sub(1));
-        match self.start(document, bytes, shown, window, cx) {
+        // A page asked for but not shown yet (`--page` before the first layout) wins.
+        let anchor = old_pages.get(pending_page.unwrap_or(current)).map(|page| page.id);
+        let shown = anchor.and_then(|id| known.pages.iter().position(|page| page.id == id)).unwrap_or(current);
+        let shown = shown.min(known.pages.len().saturating_sub(1));
+        let page_sizes = known.geometry.iter().map(|page| page.size()).collect();
+        let carried: Vec<(usize, usize)> = {
+            // Same page, same rotation, same annotations: the old bitmap is still right.
+            let old_index: HashMap<(PageState, &[u64]), usize> =
+                old_pages.iter().zip(&old_marks).enumerate().map(|(i, (page, marks))| ((*page, marks.as_slice()), i)).collect();
+            known
+                .pages
+                .iter()
+                .zip(&known.marks)
+                .enumerate()
+                .filter_map(|(index, (page, marks))| old_index.get(&(*page, marks.as_slice())).map(|&old| (old, index)))
+                .collect()
+        };
+        match self.start(document, bytes, shown, Some(known), window, cx) {
             Ok(mut open) => {
-                // Same page, same rotation: the old bitmap is still right.
-                let old_index: HashMap<PageState, usize> = old_pages.iter().enumerate().map(|(i, page)| (*page, i)).collect();
-                for (index, page) in pages.iter().enumerate() {
-                    if let Some(&old) = old_index.get(page) {
-                        if let Some(bitmap) = old_bitmaps.remove(&old) {
-                            open.pages.insert(index, bitmap);
-                        }
-                        if let Some(thumbnail) = old_thumbnails.remove(&old) {
-                            open.thumbnails.insert(index, thumbnail);
-                        }
+                for (old, index) in carried {
+                    if let Some(bitmap) = old_bitmaps.remove(&old) {
+                        open.pages.insert(index, bitmap);
+                    }
+                    if let Some(thumbnail) = old_thumbnails.remove(&old) {
+                        open.thumbnails.insert(index, thumbnail);
                     }
                 }
                 for (_, bitmap) in old_bitmaps {
@@ -286,8 +379,7 @@ impl Viewer {
                 }
                 // Sizes are known from the geometry; the outline is refreshed when PDFium answers.
                 let outline = info.map(|info| info.outline).unwrap_or_default();
-                open.info = Some(DocInfo { page_sizes: geometry.iter().map(|page| page.size()).collect(), outline });
-                open.page_states = pages;
+                open.info = Some(DocInfo { page_sizes, outline });
                 self.rail.retain_existing(&self.page_order_of(&open));
                 self.selection = None;
                 self.search.restart();

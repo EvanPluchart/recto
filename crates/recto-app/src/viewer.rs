@@ -9,25 +9,33 @@ use gpui::{
     ExternalPaths, MouseButton, ScrollHandle, ScrollWheelEvent, SharedString, Styled, Window, WindowAppearance, actions, div, img, point,
     prelude::*, px,
 };
-use recto_core::geom::{PageRect, Point, Size};
+use recto_core::form::FormField;
+use recto_core::geom::{PageGeometry, PageRect, Point, Size};
 use recto_core::layout::{self, PageLayout};
 use recto_core::op::{PageState, Rotation};
 use recto_core::{Document, PageId};
 use recto_render::{Bitmap, DocInfo, PageText, PdfiumRenderer, Purpose, RenderRequest, RenderThread, Response, Tile};
 
 mod files;
+mod annotate;
 mod dialog;
 mod edit;
+mod forms;
 mod output;
 mod password;
 mod rail;
 mod search;
 mod selection;
 mod sidebar;
+mod signature;
 
 pub use self::sidebar::Tab;
 pub use self::edit::{EditSpec, parse_edits};
+pub use self::annotate::Tool;
+use self::annotate::{Inspector, Sketch, TextDraft};
 use self::dialog::{Dialog, DialogKind};
+use self::forms::FieldEditor;
+use self::signature::SignatureDialog;
 use self::output::SplitMode;
 use self::password::Locked;
 use self::rail::RailSelection;
@@ -90,6 +98,11 @@ struct Open {
     /// The document and its edit log; `page_states` are the pages of the bytes being shown.
     document: Document,
     page_states: Vec<PageState>,
+    /// How each shown page maps to user space, and the form fields of the opened file.
+    geometry: Vec<PageGeometry>,
+    fields: Vec<FormField>,
+    /// See `Known::marks`.
+    marks: Vec<Vec<u64>>,
     renderer: RenderThread,
     info: Option<DocInfo>,
     layout: Option<PageLayout>,
@@ -109,6 +122,44 @@ struct Open {
     tiles_in_flight: HashSet<TileKey>,
     /// Page to scroll to once the first layout exists (from `--page`).
     pending_page: Option<usize>,
+}
+
+/// The pages of some built bytes, how they map to user space, and the form fields.
+pub(super) struct Known {
+    pages: Vec<PageState>,
+    geometry: Vec<PageGeometry>,
+    fields: Vec<FormField>,
+    /// Per page, the ids of the ops drawn on it (annotations, filled fields): a page whose
+    /// state and marks are unchanged keeps its bitmap across a rebuild.
+    marks: Vec<Vec<u64>>,
+}
+
+impl Known {
+    /// Read from `document` (as it is now) with lopdf.
+    fn of(document: &Document) -> Self {
+        let pages = document.pages();
+        let geometry = document.geometry_of(&pages).unwrap_or_default();
+        Known::with(document, pages, geometry, document.form_fields().unwrap_or_default())
+    }
+
+    fn with(document: &Document, pages: Vec<PageState>, geometry: Vec<PageGeometry>, fields: Vec<FormField>) -> Self {
+        let mut by_page: HashMap<PageId, Vec<u64>> = HashMap::new();
+        for (op, &id) in document.ops().iter().zip(document.op_ids()) {
+            match op {
+                recto_core::op::Op::AddAnnotation { page, .. } => by_page.entry(*page).or_default().push(id),
+                recto_core::op::Op::FillField { name, .. } => {
+                    for field in fields.iter().filter(|field| &field.name == name) {
+                        for widget in &field.widgets {
+                            by_page.entry(widget.page).or_default().push(id);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        let marks = pages.iter().map(|page| by_page.get(&page.id).cloned().unwrap_or_default()).collect();
+        Known { pages, geometry, fields, marks }
+    }
 }
 
 /// A tile of a page at one render scale; `x` and `y` are its corner in device pixels.
@@ -185,6 +236,16 @@ pub struct Viewer {
     dialog: Option<Dialog>,
     /// The reader agreed to close with unsaved changes.
     closing: bool,
+    /// The active tool and its options.
+    tool: Tool,
+    inspector: Inspector,
+    /// A shape or stroke being drawn, a text box being typed, a field being filled.
+    sketch: Option<Sketch>,
+    text_draft: Option<TextDraft>,
+    field_editor: Option<FieldEditor>,
+    /// The signature placed by the next click, and the dialog that chooses it.
+    signature: Option<crate::signatures::Signature>,
+    signature_dialog: Option<SignatureDialog>,
     recent: Vec<std::path::PathBuf>,
     recent_menu: bool,
     /// Documents opened so far in this window.
@@ -227,6 +288,13 @@ impl Viewer {
             selection: None,
             dialog: None,
             closing: false,
+            tool: args.tool.unwrap_or(Tool::Select),
+            inspector: Inspector::default(),
+            sketch: None,
+            text_draft: None,
+            field_editor: None,
+            signature: None,
+            signature_dialog: None,
             recent: recent::load(),
             recent_menu: false,
             opened: 0,
@@ -243,7 +311,7 @@ impl Viewer {
             viewer.apply_specs(&args.apply, window, cx);
         }
         if let Some(path) = args.save_as {
-            viewer.write_document(path, window, cx);
+            viewer.write_document(path, false, window, cx);
         }
         if let Some(query) = args.find {
             viewer.preset_search(query, cx);
@@ -272,17 +340,20 @@ impl Viewer {
 
     /// Starts a render thread showing `bytes` (the document as built, unlocked with its password
     /// if it has one) and listens to it; page `page` (0-based) is shown once the layout exists.
+    /// `known` holds what a background build already worked out for `bytes`; without it, the
+    /// pages, their geometry and the form fields are read from `document` now.
     fn start(
         &mut self,
         document: Document,
         bytes: Arc<[u8]>,
         page: usize,
+        known: Option<Known>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<Open, SharedString> {
         let renderer = RenderThread::spawn(PdfiumRenderer::new).map_err(|e| failure("Cannot start the renderer", e))?;
         renderer.open(bytes, document.password());
-        let page_states = document.pages();
+        let Known { pages: page_states, geometry, fields, marks } = known.unwrap_or_else(|| Known::of(&document));
         let responses = renderer.responses().clone();
         // Responses go to this document only: once another one is open, the listener stops.
         self.opened += 1;
@@ -306,6 +377,9 @@ impl Viewer {
             serial,
             document,
             page_states,
+            geometry,
+            marks,
+            fields,
             renderer,
             info: None,
             layout: None,
@@ -695,9 +769,9 @@ impl Viewer {
             .w(px(layout.content.width))
             .h(px(layout.content.height))
             .on_scroll_wheel(cx.listener(Self::on_wheel))
-            .on_mouse_down(MouseButton::Left, cx.listener(Self::on_select_start))
-            .on_mouse_move(cx.listener(Self::on_select_move))
-            .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, _| this.end_selection()));
+            .on_mouse_down(MouseButton::Left, cx.listener(Self::on_pointer_down))
+            .on_mouse_move(cx.listener(Self::on_pointer_move))
+            .on_mouse_up(MouseButton::Left, cx.listener(|this, _, window, cx| this.on_pointer_up(window, cx)));
         for index in visible {
             let page = layout.boxes[index];
             let frame = div()
@@ -708,7 +782,8 @@ impl Viewer {
                 .h(px(page.height))
                 .bg(theme.placeholder)
                 .shadow_md()
-                .cursor_text();
+                .when(self.tool.selects_text(), |frame| frame.cursor_text())
+                .when(!self.tool.selects_text(), |frame| frame.cursor_crosshair());
             // A bitmap from another zoom level is stretched until the right one arrives.
             content = content.child(match open.pages.get(&index) {
                 Some(cached) => frame.child(img(cached.image.clone()).size_full()),
@@ -757,6 +832,8 @@ impl Viewer {
                     .bg(theme.selection)
             });
             content = content.children(selected);
+            content = content.children(self.form_overlay(index, (page.x, page.y), zoom, cx));
+            content = content.children(self.tool_overlay(index, (page.x, page.y, page.width, page.height), zoom));
         }
         div()
             .id("pages")
@@ -837,11 +914,13 @@ impl Render for Viewer {
             .bg(theme.canvas)
             .child(self.toolbar(cx))
             .children(self.page_tools(cx))
+            .children(self.annotate_bar(cx))
             .children(self.notice_bar(cx))
             .children(self.search_bar(cx))
             .child(div().flex().flex_1().min_h_0().children(self.sidebar(window, cx)).child(self.pages(window, cx)))
             .children(self.recent_menu(cx))
             .children(self.dialog_view(cx))
+            .children(self.signature_view(cx))
     }
 }
 
@@ -904,6 +983,12 @@ impl Viewer {
                 .child(div().flex_1())
                 .child(button("save", "Save", open.document.is_modified()).on_click(cx.listener(|this, _, window, cx| this.save(window, cx))))
                 .child(button("save-as", "Save as…", true).on_click(cx.listener(|this, _, window, cx| this.save_as(window, cx))))
+                .when(!open.fields.is_empty(), |bar| {
+                    bar.child(
+                        button("save-flat", "Save flattened…", true)
+                            .on_click(cx.listener(|this, _, window, cx| this.save_flattened(window, cx))),
+                    )
+                })
                 .into_any_element(),
         )
     }

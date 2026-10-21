@@ -54,7 +54,7 @@ impl Viewer {
             State::Locked(Box::new(Locked::new(document, page, self.theme, window, cx)))
         } else {
             let bytes = document.bytes();
-            match self.start(document, bytes, page.saturating_sub(1), window, cx) {
+            match self.start(document, bytes, page.saturating_sub(1), None, window, cx) {
                 Ok(open) => State::Open(Box::new(open)),
                 Err(message) => State::Error(message),
             }

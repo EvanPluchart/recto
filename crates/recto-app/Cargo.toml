@@ -16,4 +16,4 @@ recto-render.workspace = true
 anyhow.workspace = true
 flume.workspace = true
 gpui.workspace = true
-image.workspace = true
+image = { workspace = true, features = ["png", "jpeg"] }

@@ -6,7 +6,7 @@ const MAX: usize = 12;
 const FILE: &str = "recent.txt";
 
 /// `RECTO_CONFIG_DIR`, else the platform's per-user config folder.
-fn config_dir() -> Option<PathBuf> {
+pub fn config_dir() -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os("RECTO_CONFIG_DIR") {
         return Some(PathBuf::from(dir));
     }
@@ -52,13 +52,11 @@ fn push(mut list: Vec<PathBuf>, path: PathBuf) -> Vec<PathBuf> {
     list
 }
 
-/// Writes through a temporary file and a rename, so a crash never leaves half a list.
+/// Written atomically, so a crash never leaves half a list.
 fn save(dir: &Path, list: &[PathBuf]) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     let text: String = list.iter().filter_map(|path| path.to_str()).map(|path| format!("{path}\n")).collect();
-    let temporary = dir.join(format!("{FILE}.tmp"));
-    std::fs::write(&temporary, text)?;
-    std::fs::rename(&temporary, dir.join(FILE))
+    recto_core::save::write_atomic(&dir.join(FILE), text.as_bytes())
 }
 
 #[cfg(test)]

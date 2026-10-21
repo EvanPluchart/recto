@@ -42,7 +42,7 @@ impl Viewer {
         let State::Locked(locked) = std::mem::replace(&mut self.state, State::Empty) else { return };
         let Locked { document, page, .. } = *locked;
         let bytes = document.bytes();
-        self.state = match self.start(document, bytes, page.saturating_sub(1), window, cx) {
+        self.state = match self.start(document, bytes, page.saturating_sub(1), None, window, cx) {
             Ok(open) => State::Open(Box::new(open)),
             Err(message) => State::Error(message),
         };

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use gpui::{Context, PathPromptOptions, PromptLevel, Window};
 use recto_core::op::PageState;
 use recto_core::save::write_atomic;
-use recto_core::split;
+use recto_core::{BuildOptions, split};
 
 use super::{State, Viewer, failure};
 use crate::i18n::t;
@@ -63,7 +63,7 @@ impl Viewer {
         );
         cx.spawn_in(window, async move |this, cx| {
             if answer.await == Ok(0) {
-                this.update_in(cx, |viewer, window, cx| viewer.write_document(path, window, cx)).ok();
+                this.update_in(cx, |viewer, window, cx| viewer.write_document(path, false, window, cx)).ok();
             }
         })
         .detach();
@@ -77,7 +77,7 @@ impl Viewer {
         let chosen = cx.prompt_for_new_path(&self.folder(), Some(&format!("{}.pdf", self.stem())));
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(path))) = chosen.await {
-                this.update_in(cx, |viewer, window, cx| viewer.write_document(path, window, cx)).ok();
+                this.update_in(cx, |viewer, window, cx| viewer.write_document(path, false, window, cx)).ok();
             }
         })
         .detach();
@@ -85,19 +85,24 @@ impl Viewer {
 
     /// Builds the document as it is now and writes it to `path`; the document then stands for
     /// that file.
-    pub(super) fn write_document(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+    /// With `flatten`, writes a copy whose form is drawn into the pages: an export, so the
+    /// document keeps its own path and unsaved state.
+    pub(super) fn write_document(&mut self, path: PathBuf, flatten: bool, window: &mut Window, cx: &mut Context<Self>) {
         let State::Open(open) = &self.state else { return };
         let snapshot = open.document.clone();
         let cursor = snapshot.cursor();
         let target = path.clone();
         let task = cx.background_executor().spawn(async move {
-            let bytes = snapshot.build().map_err(|error| error.to_string())?;
+            let bytes = snapshot.build_with(BuildOptions { flatten_forms: flatten }).map_err(|error| error.to_string())?;
             write_atomic(&target, &bytes).map_err(|error| error.to_string())
         });
         cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
             this.update_in(cx, |viewer, window, cx| {
                 match result {
+                    Ok(()) if flatten => {
+                        viewer.notice = Some(format!("{} {}", t("Flattened copy saved to"), path.display()).into());
+                    }
                     Ok(()) => {
                         if let State::Open(open) = &mut viewer.state {
                             open.document.mark_saved_at(cursor);
@@ -112,6 +117,17 @@ impl Viewer {
                 cx.notify();
             })
             .ok();
+        })
+        .detach();
+    }
+
+    /// Saves a copy with the form fields drawn into the pages.
+    pub(super) fn save_flattened(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let chosen = cx.prompt_for_new_path(&self.folder(), Some(&format!("{}-flat.pdf", self.stem())));
+        cx.spawn_in(window, async move |this, cx| {
+            if let Ok(Ok(Some(path))) = chosen.await {
+                this.update_in(cx, |viewer, window, cx| viewer.write_document(path, true, window, cx)).ok();
+            }
         })
         .detach();
     }
