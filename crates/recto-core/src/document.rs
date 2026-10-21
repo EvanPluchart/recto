@@ -21,6 +21,8 @@ pub struct Document {
     path: Option<PathBuf>,
     bytes: Arc<[u8]>,
     page_count: usize,
+    /// Encrypted with a user password (the empty one does not open it).
+    needs_password: bool,
 }
 
 impl Document {
@@ -36,11 +38,13 @@ impl Document {
     /// Validates in-memory bytes, as `open` does for a file.
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, OpenError> {
         let parsed = lopdf::Document::load_mem(&bytes)?;
+        // A locked document shows no pages until it is unlocked; its pages are counted then.
+        let needs_password = parsed.is_encrypted() && parsed.authenticate_password("").is_err();
         let page_count = parsed.get_pages().len();
-        if page_count == 0 {
+        if page_count == 0 && !needs_password {
             return Err(OpenError::Empty);
         }
-        Ok(Self { path: None, bytes: bytes.into(), page_count })
+        Ok(Self { path: None, bytes: bytes.into(), page_count, needs_password })
     }
 
     pub fn path(&self) -> Option<&Path> {
@@ -52,8 +56,19 @@ impl Document {
         self.bytes.clone()
     }
 
+    /// Pages seen when the document was opened; 0 while it needs a password.
     pub fn page_count(&self) -> usize {
         self.page_count
+    }
+
+    /// Whether the document must be unlocked before it can be shown.
+    pub fn needs_password(&self) -> bool {
+        self.needs_password
+    }
+
+    /// Whether `password` (user or owner) unlocks the document.
+    pub fn check_password(&self, password: &str) -> bool {
+        lopdf::Document::load_mem(&self.bytes).is_ok_and(|parsed| parsed.authenticate_password(password).is_ok())
     }
 }
 
@@ -75,6 +90,17 @@ mod tests {
     #[test]
     fn rejects_garbage() {
         assert!(matches!(Document::from_bytes(b"not a pdf".to_vec()), Err(OpenError::Invalid(_))));
+    }
+
+    #[test]
+    fn detects_and_checks_passwords() {
+        let plain = Document::open(fixture()).unwrap();
+        assert!(!plain.needs_password());
+        let locked = Document::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/protected.pdf")).unwrap();
+        assert!(locked.needs_password());
+        assert!(!locked.check_password("wrong"));
+        assert!(locked.check_password("recto"));
+        assert!(locked.check_password("owner"));
     }
 
     #[test]

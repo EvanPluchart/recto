@@ -103,6 +103,18 @@ fn renders_the_fixtures() {
     assert_eq!(line.len(), 1);
     assert!(line[0].x > 740.0 && line[0].right() < 800.0, "{line:?}");
     assert!((line[0].y - 56.0).abs() < 3.0 && line[0].height > line[0].width, "{line:?}");
+
+    // An encrypted file opens only with its password.
+    thread.open(fixture("protected.pdf"), None);
+    match thread.responses().recv().unwrap() {
+        Response::Opened(result) => assert!(result.is_err(), "opened without a password"),
+        other => panic!("unexpected {other:?}"),
+    }
+    thread.open(fixture("protected.pdf"), Some("recto"));
+    match thread.responses().recv().unwrap() {
+        Response::Opened(result) => assert_eq!(result.unwrap().page_count(), 1),
+        other => panic!("unexpected {other:?}"),
+    }
 }
 
 fn page_text(thread: &RenderThread, index: usize) -> recto_render::PageText {
