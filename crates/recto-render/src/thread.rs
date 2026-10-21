@@ -1,7 +1,7 @@
 //! The render thread: owns the `Renderer` and serves requests over `flume` channels.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::JoinHandle;
 
 use anyhow::{Context, Result, anyhow};
@@ -28,6 +28,8 @@ pub struct RenderThread {
     commands: Sender<Command>,
     responses: Receiver<Response>,
     generation: Arc<AtomicU64>,
+    /// Set on shutdown: the thread stops at the next command instead of working through the queue.
+    stopped: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
 }
 
@@ -44,12 +46,14 @@ impl RenderThread {
         let (ready_tx, ready_rx) = flume::bounded(1);
         let generation = Arc::new(AtomicU64::new(0));
         let latest = generation.clone();
+        let stopped = Arc::new(AtomicBool::new(false));
+        let stop = stopped.clone();
         let handle = std::thread::Builder::new()
             .name("recto-render".into())
             .spawn(move || match make() {
                 Ok(renderer) => {
                     let _ = ready_tx.send(Ok(()));
-                    serve(renderer, command_rx, response_tx, latest);
+                    serve(renderer, command_rx, response_tx, latest, stop);
                 }
                 Err(error) => {
                     let _ = ready_tx.send(Err(anyhow::Error::new(error)));
@@ -57,7 +61,7 @@ impl RenderThread {
             })
             .context("starting the render thread")?;
         ready_rx.recv().map_err(|_| anyhow!("the render thread stopped while starting"))??;
-        Ok(Self { commands, responses, generation, handle: Some(handle) })
+        Ok(Self { commands, responses, generation, stopped, handle: Some(handle) })
     }
 
     pub fn open(&self, bytes: Arc<[u8]>, password: Option<&str>) {
@@ -78,6 +82,11 @@ impl RenderThread {
         let _ = self.commands.send(Command::Text(index));
     }
 
+    /// Abandons every queued command; the backend is released once the current one ends.
+    pub fn shutdown(&self) {
+        self.stopped.store(true, Ordering::Release);
+    }
+
     /// Answers, in request order. The receiver can be cloned and awaited with `recv_async`.
     pub fn responses(&self) -> &Receiver<Response> {
         &self.responses
@@ -86,7 +95,9 @@ impl RenderThread {
 
 impl Drop for RenderThread {
     fn drop(&mut self) {
-        // Closing the command channel ends the loop; then wait for the backend to be released.
+        // Stop at the next command (a closed channel alone would still deliver the queue), then
+        // wait for the backend to be released.
+        self.shutdown();
         let (closed, _) = flume::unbounded();
         drop(std::mem::replace(&mut self.commands, closed));
         if let Some(handle) = self.handle.take() {
@@ -95,8 +106,17 @@ impl Drop for RenderThread {
     }
 }
 
-fn serve<R: Renderer>(mut renderer: R, commands: Receiver<Command>, responses: Sender<Response>, latest: Arc<AtomicU64>) {
+fn serve<R: Renderer>(
+    mut renderer: R,
+    commands: Receiver<Command>,
+    responses: Sender<Response>,
+    latest: Arc<AtomicU64>,
+    stopped: Arc<AtomicBool>,
+) {
     for command in commands.iter() {
+        if stopped.load(Ordering::Acquire) {
+            break;
+        }
         let response = match command {
             Command::Open { bytes, password } => {
                 Response::Opened(renderer.open(bytes, password.as_deref()).map_err(anyhow::Error::new))
@@ -128,6 +148,8 @@ mod tests {
     /// Blocks in its first `open` until released, so the test can queue requests deterministically.
     struct Mock {
         gate: Option<Receiver<()>>,
+        /// Pages rendered so far.
+        renders: Arc<std::sync::atomic::AtomicUsize>,
     }
 
     impl Renderer for Mock {
@@ -141,6 +163,7 @@ mod tests {
         }
 
         fn render(&mut self, request: &RenderRequest) -> Result<Bitmap, MockError> {
+            self.renders.fetch_add(1, Ordering::Relaxed);
             let width = request.index as u32 + 1;
             Ok(Bitmap { width, height: 1, pixels: vec![255; 4 * width as usize] })
         }
@@ -158,7 +181,7 @@ mod tests {
     #[test]
     fn stale_generations_are_dropped() {
         let (release, gate) = flume::bounded(1);
-        let thread = RenderThread::spawn(move || Ok::<_, MockError>(Mock { gate: Some(gate) })).unwrap();
+        let thread = RenderThread::spawn(move || Ok::<_, MockError>(Mock { gate: Some(gate), renders: Arc::default() })).unwrap();
         thread.open(Arc::from(&b""[..]), None);
 
         // The thread is blocked in `open`: everything below is queued before it looks at any request.
@@ -197,7 +220,7 @@ mod tests {
 
     #[test]
     fn current_generation_is_rendered() {
-        let thread = RenderThread::spawn(|| Ok::<_, MockError>(Mock { gate: None })).unwrap();
+        let thread = RenderThread::spawn(|| Ok::<_, MockError>(Mock { gate: None, renders: Arc::default() })).unwrap();
         let generation = thread.next_generation();
         thread.request(request(1, generation));
         match thread.responses().recv().unwrap() {
@@ -207,6 +230,24 @@ mod tests {
             }
             other => panic!("unexpected {other:?}"),
         }
+    }
+
+    #[test]
+    fn shutdown_abandons_the_queue() {
+        let (release, gate) = flume::bounded(1);
+        let renders = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = renders.clone();
+        let thread = RenderThread::spawn(move || Ok::<_, MockError>(Mock { gate: Some(gate), renders: counter })).unwrap();
+        thread.open(Arc::from(&b""[..]), None);
+        let generation = thread.next_generation();
+        for index in 0..50 {
+            thread.request(request(index, generation));
+        }
+        thread.text(0);
+        thread.shutdown();
+        release.send(()).unwrap();
+        drop(thread); // joins: returns once `open` ends, without rendering the queue
+        assert_eq!(renders.load(Ordering::Relaxed), 0);
     }
 
     #[test]

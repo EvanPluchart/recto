@@ -75,6 +75,8 @@ struct Cached {
 }
 
 struct Open {
+    /// Which opening this is (`Viewer::opened`), to ignore late answers meant for a previous one.
+    serial: u64,
     _document: Document,
     renderer: RenderThread,
     info: Option<DocInfo>,
@@ -169,6 +171,8 @@ pub struct Viewer {
     selection: Option<Selection>,
     recent: Vec<std::path::PathBuf>,
     recent_menu: bool,
+    /// Documents opened so far in this window.
+    opened: u64,
 }
 
 impl Viewer {
@@ -201,6 +205,7 @@ impl Viewer {
             selection: None,
             recent: recent::load(),
             recent_menu: false,
+            opened: 0,
         };
         // Focus first: a password prompt takes it over.
         window.focus(&viewer.focus);
@@ -226,15 +231,26 @@ impl Viewer {
         let renderer = RenderThread::spawn(PdfiumRenderer::new).map_err(|e| failure("Cannot start the renderer", e))?;
         renderer.open(document.bytes(), password);
         let responses = renderer.responses().clone();
+        // Responses go to this document only: once another one is open, the listener stops.
+        self.opened += 1;
+        let serial = self.opened;
         cx.spawn_in(window, async move |this, cx| {
             while let Ok(response) = responses.recv_async().await {
-                if this.update_in(cx, |viewer, window, cx| viewer.receive(response, window, cx)).is_err() {
+                let delivered = this.update_in(cx, |viewer, window, cx| {
+                    let current = viewer.open().is_some_and(|open| open.serial == serial);
+                    if current {
+                        viewer.receive(response, window, cx);
+                    }
+                    current
+                });
+                if !matches!(delivered, Ok(true)) {
                     break;
                 }
             }
         })
         .detach();
         Ok(Open {
+            serial,
             _document: document,
             renderer,
             info: None,
