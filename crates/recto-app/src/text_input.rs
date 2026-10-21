@@ -96,6 +96,8 @@ impl Buffer {
 pub struct TextInput {
     buffer: Buffer,
     placeholder: SharedString,
+    /// Shows bullets instead of the text, and never copies it.
+    masked: bool,
     theme: Theme,
     focus: FocusHandle,
 }
@@ -104,7 +106,17 @@ impl EventEmitter<TextInputEvent> for TextInput {}
 
 impl TextInput {
     pub fn new(placeholder: impl Into<SharedString>, accept: fn(char) -> bool, theme: Theme, cx: &mut Context<Self>) -> Self {
-        Self { buffer: Buffer::new(accept), placeholder: placeholder.into(), theme, focus: cx.focus_handle() }
+        Self { buffer: Buffer::new(accept), placeholder: placeholder.into(), masked: false, theme, focus: cx.focus_handle() }
+    }
+
+    /// For passwords.
+    pub fn masked(mut self) -> Self {
+        self.masked = true;
+        self
+    }
+
+    pub fn text(&self) -> &str {
+        &self.buffer.text
     }
 
     /// Replaces the text and puts the cursor at the end.
@@ -139,7 +151,7 @@ impl TextInput {
             "home" => buffer.move_to(0),
             "end" => buffer.move_to(len),
             "a" if modifiers.secondary() => buffer.select_all(),
-            "c" if modifiers.secondary() => cx.write_to_clipboard(ClipboardItem::new_string(buffer.text.clone())),
+            "c" if modifiers.secondary() && !self.masked => cx.write_to_clipboard(ClipboardItem::new_string(buffer.text.clone())),
             "v" if modifiers.secondary() => {
                 if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
                     buffer.insert(&text);
@@ -188,14 +200,15 @@ impl Render for TextInput {
             return field.child(div().text_color(theme.muted).child(self.placeholder.clone()));
         }
         let (before, after) = buffer.text.split_at(buffer.byte_index(buffer.cursor));
+        let show = |part: &str| if self.masked { "•".repeat(part.chars().count()) } else { part.to_owned() };
         let caret = div().w(px(1.)).h(px(14.)).bg(theme.text);
         let text = div().flex().items_center().whitespace_nowrap();
         if focused && buffer.all_selected && !buffer.text.is_empty() {
-            field.child(text.child(div().bg(theme.selection).child(buffer.text.clone())))
+            field.child(text.child(div().bg(theme.selection).child(show(&buffer.text))))
         } else if focused {
-            field.child(text.child(before.to_owned()).child(caret).child(after.to_owned()))
+            field.child(text.child(show(before)).child(caret).child(show(after)))
         } else {
-            field.child(text.child(buffer.text.clone()))
+            field.child(text.child(show(&buffer.text)))
         }
     }
 }

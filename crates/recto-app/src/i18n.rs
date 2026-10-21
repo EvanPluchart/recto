@@ -36,6 +36,10 @@ const FR: &[(&str, &str)] = &[
     ("Or drop a file onto this window.", "Ou déposez un fichier sur cette fenêtre."),
     ("Recent files", "Fichiers récents"),
     ("No recent files", "Aucun fichier récent"),
+    ("Password", "Mot de passe"),
+    ("This document is protected by a password.", "Ce document est protégé par un mot de passe."),
+    ("Wrong password", "Mot de passe incorrect"),
+    ("Unlock", "Déverrouiller"),
 ];
 
 fn lang() -> Lang {

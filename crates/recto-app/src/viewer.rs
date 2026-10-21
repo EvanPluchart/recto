@@ -15,11 +15,13 @@ use recto_core::{Document, PageId};
 use recto_render::{Bitmap, DocInfo, PageText, PdfiumRenderer, Purpose, RenderRequest, RenderThread, Response};
 
 mod files;
+mod password;
 mod search;
 mod selection;
 mod sidebar;
 
 pub use self::sidebar::Tab;
+use self::password::Locked;
 use self::search::Search;
 use self::selection::Selection;
 use self::sidebar::Sidebar;
@@ -90,6 +92,8 @@ struct Open {
 enum State {
     Empty,
     Error(SharedString),
+    /// Waiting for the password of an encrypted document.
+    Locked(Box<Locked>),
     Open(Box<Open>),
 }
 
@@ -138,26 +142,29 @@ impl Viewer {
             recent: recent::load(),
             recent_menu: false,
         };
+        // Focus first: a password prompt takes it over.
+        window.focus(&viewer.focus);
         if let Some(path) = args.file {
             viewer.open_path(path, args.page, window, cx);
         }
-        window.focus(&viewer.focus);
         if let Some(query) = args.find {
             viewer.preset_search(query, cx);
         }
         viewer
     }
 
+    /// Starts a render thread for `document` (unlocked with `password` if it needs one) and
+    /// listens to it; page `page` (1-based) is shown once the layout exists.
     fn start(
         &mut self,
-        path: &std::path::Path,
+        document: Document,
+        password: Option<&str>,
         page: usize,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Result<Open, SharedString> {
-        let document = Document::open(path).map_err(|e| failure("Cannot open the document", e))?;
         let renderer = RenderThread::spawn(PdfiumRenderer::new).map_err(|e| failure("Cannot start the renderer", e))?;
-        renderer.open(document.bytes(), None);
+        renderer.open(document.bytes(), password);
         let responses = renderer.responses().clone();
         cx.spawn_in(window, async move |this, cx| {
             while let Ok(response) = responses.recv_async().await {
@@ -504,6 +511,7 @@ impl Viewer {
         let open = match &self.state {
             State::Empty => return self.start_screen(cx),
             State::Error(text) => return message(text.clone()),
+            State::Locked(locked) => return self.password_prompt(locked, cx),
             State::Open(open) => open,
         };
         let Some(layout) = &open.layout else { return message(t("Loading…").into()) };

@@ -7,7 +7,10 @@ use gpui::{
     div, prelude::*, px,
 };
 
-use super::{State, Viewer};
+use recto_core::Document;
+
+use super::password::Locked;
+use super::{State, Viewer, failure};
 use crate::i18n::t;
 use crate::recent;
 
@@ -28,14 +31,24 @@ impl Viewer {
         self.search.restart();
         self.sidebar.forget_followed();
         self.set_scroll_position(recto_core::geom::Point { x: 0.0, y: 0.0 });
-        self.state = match self.start(&path, page, window, cx) {
-            Ok(open) => {
-                self.recent = recent::record(&path);
-                let (name, _) = describe(&path);
-                window.set_window_title(&format!("{name} — {}", t("Recto")));
-                State::Open(Box::new(open))
+        let document = match Document::open(&path) {
+            Ok(document) => document,
+            Err(error) => {
+                self.state = State::Error(failure("Cannot open the document", error));
+                cx.notify();
+                return;
             }
-            Err(message) => State::Error(message),
+        };
+        self.recent = recent::record(&path);
+        let (name, _) = describe(&path);
+        window.set_window_title(&format!("{name} — {}", t("Recto")));
+        self.state = if document.needs_password() {
+            State::Locked(Box::new(Locked::new(document, page, self.theme, window, cx)))
+        } else {
+            match self.start(document, None, page, window, cx) {
+                Ok(open) => State::Open(Box::new(open)),
+                Err(message) => State::Error(message),
+            }
         };
         cx.notify();
     }
