@@ -9,8 +9,12 @@ use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref, Str, TextStr};
 /// Committed fixtures, by file name.
 type Fixture = (&'static str, fn() -> Vec<u8>);
 /// Byte-for-byte reproducible fixtures; the up-to-date test compares them with the generators.
-const FIXTURES: [Fixture; 3] =
-    [("sample.pdf", sample_pdf), ("layout.pdf", layout_pdf), ("inherited.pdf", inherited_pdf)];
+const FIXTURES: [Fixture; 4] = [
+    ("sample.pdf", sample_pdf),
+    ("layout.pdf", layout_pdf),
+    ("inherited.pdf", inherited_pdf),
+    ("forms.pdf", forms_pdf),
+];
 /// Encrypted: the `/U` entry ends with arbitrary bytes, which `lopdf` draws at random.
 const PROTECTED: &str = "protected.pdf";
 
@@ -91,6 +95,134 @@ pub fn inherited_pdf() -> Vec<u8> {
         pdf.stream(content_id, &content.finish());
     }
     pdf.finish()
+}
+
+/// One A4 page with an AcroForm: a text field `name`, a check box `agree` (states `Yes`/`Off`),
+/// a radio group `size` (`Small`, `Large`) and a combo box `color` (Red, Green, Blue). All start
+/// empty. Check boxes and radio buttons carry their own on/off appearances.
+pub fn forms_pdf() -> Vec<u8> {
+    use lopdf::{Dictionary, Object, Stream};
+
+    let name = |text: &str| Object::Name(text.as_bytes().to_vec());
+    let string = |text: &str| Object::string_literal(text);
+    let rect = |x0: f32, y0: f32, x1: f32, y1: f32| Object::Array(vec![x0.into(), y0.into(), x1.into(), y1.into()]);
+    let form = |content: &[u8], size: f32| {
+        let mut dictionary = Dictionary::new();
+        dictionary.set("Type", name("XObject"));
+        dictionary.set("Subtype", name("Form"));
+        dictionary.set("BBox", Object::Array(vec![0.into(), 0.into(), size.into(), size.into()]));
+        Stream::new(dictionary, content.to_vec())
+    };
+
+    let mut document = lopdf::Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let page_id = document.new_object_id();
+    let mut font = Dictionary::new();
+    font.set("Type", name("Font"));
+    font.set("Subtype", name("Type1"));
+    font.set("BaseFont", name("Helvetica"));
+    font.set("Encoding", name("WinAnsiEncoding"));
+    let font_id = document.add_object(font);
+    let mut fonts = Dictionary::new();
+    fonts.set("Helv", Object::Reference(font_id));
+    let mut resources = Dictionary::new();
+    resources.set("Font", Object::Dictionary(fonts));
+
+    let labels = b"BT /Helv 14 Tf 56 706 Td (Name) Tj 0 -50 Td (I agree) Tj 0 -50 Td (Size) Tj 0 -50 Td (Color) Tj ET";
+    let content_id = document.add_object(Stream::new(Dictionary::new(), labels.to_vec()));
+    let on = form(b"0 0 0 rg 3 3 10 10 re f", 16.0);
+    let off = form(b"", 16.0);
+    let (on_id, off_id) = (document.add_object(on), document.add_object(off));
+    let states = |state: &str| {
+        let mut normal = Dictionary::new();
+        normal.set(state, Object::Reference(on_id));
+        normal.set("Off", Object::Reference(off_id));
+        let mut appearance = Dictionary::new();
+        appearance.set("N", Object::Dictionary(normal));
+        Object::Dictionary(appearance)
+    };
+    let widget = |dictionary: &mut Dictionary, area: Object| {
+        dictionary.set("Type", name("Annot"));
+        dictionary.set("Subtype", name("Widget"));
+        dictionary.set("Rect", area);
+        dictionary.set("P", Object::Reference(page_id));
+        dictionary.set("F", Object::Integer(4));
+    };
+
+    let mut text = Dictionary::new();
+    widget(&mut text, rect(150.0, 700.0, 400.0, 724.0));
+    text.set("FT", name("Tx"));
+    text.set("T", string("name"));
+    text.set("DA", string("/Helv 12 Tf 0 g"));
+    let text_id = document.add_object(text);
+
+    let mut check = Dictionary::new();
+    widget(&mut check, rect(150.0, 650.0, 166.0, 666.0));
+    check.set("FT", name("Btn"));
+    check.set("T", string("agree"));
+    check.set("V", name("Off"));
+    check.set("AS", name("Off"));
+    check.set("AP", states("Yes"));
+    let check_id = document.add_object(check);
+
+    let radio_id = document.new_object_id();
+    let mut kids = Vec::new();
+    for (state, x) in [("Small", 150.0), ("Large", 250.0)] {
+        let mut kid = Dictionary::new();
+        widget(&mut kid, rect(x, 600.0, x + 16.0, 616.0));
+        kid.set("Parent", Object::Reference(radio_id));
+        kid.set("AS", name("Off"));
+        kid.set("AP", states(state));
+        kids.push(Object::Reference(document.add_object(kid)));
+    }
+    let mut radio = Dictionary::new();
+    radio.set("FT", name("Btn"));
+    radio.set("T", string("size"));
+    radio.set("Ff", Object::Integer(49152)); // radio, no toggle to off
+    radio.set("V", name("Off"));
+    radio.set("Kids", Object::Array(kids.clone()));
+    document.objects.insert(radio_id, Object::Dictionary(radio));
+
+    let mut choice = Dictionary::new();
+    widget(&mut choice, rect(150.0, 550.0, 300.0, 574.0));
+    choice.set("FT", name("Ch"));
+    choice.set("T", string("color"));
+    choice.set("Ff", Object::Integer(131072)); // combo box
+    choice.set("Opt", Object::Array(vec![string("Red"), string("Green"), string("Blue")]));
+    choice.set("DA", string("/Helv 12 Tf 0 g"));
+    let choice_id = document.add_object(choice);
+
+    let mut annots = vec![Object::Reference(text_id), Object::Reference(check_id)];
+    annots.extend(kids);
+    annots.push(Object::Reference(choice_id));
+    let mut page = Dictionary::new();
+    page.set("Type", name("Page"));
+    page.set("Parent", Object::Reference(pages_id));
+    page.set("MediaBox", rect(0.0, 0.0, 595.0, 842.0));
+    page.set("Resources", Object::Dictionary(resources.clone()));
+    page.set("Contents", Object::Reference(content_id));
+    page.set("Annots", Object::Array(annots));
+    document.objects.insert(page_id, Object::Dictionary(page));
+    let mut pages = Dictionary::new();
+    pages.set("Type", name("Pages"));
+    pages.set("Kids", Object::Array(vec![Object::Reference(page_id)]));
+    pages.set("Count", Object::Integer(1));
+    document.objects.insert(pages_id, Object::Dictionary(pages));
+
+    let fields = [text_id, check_id, radio_id, choice_id].into_iter().map(Object::Reference).collect();
+    let mut acro_form = Dictionary::new();
+    acro_form.set("Fields", Object::Array(fields));
+    acro_form.set("DR", Object::Dictionary(resources));
+    acro_form.set("DA", string("/Helv 12 Tf 0 g"));
+    let mut catalog = Dictionary::new();
+    catalog.set("Type", name("Catalog"));
+    catalog.set("Pages", Object::Reference(pages_id));
+    catalog.set("AcroForm", Object::Dictionary(acro_form));
+    let catalog_id = document.add_object(catalog);
+    document.trailer.set("Root", Object::Reference(catalog_id));
+    let mut bytes = Vec::new();
+    document.save_to(&mut bytes).expect("writing to a Vec");
+    bytes
 }
 
 /// User password of `protected.pdf`.
