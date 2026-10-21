@@ -4,16 +4,18 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use pdfium_render::prelude::{
-    PdfBitmapFormat, PdfBookmark, PdfColor, PdfDocument, PdfPage, PdfPageIndex, PdfPoints, PdfRect, PdfRenderConfig,
+    PdfBitmap, PdfBitmapFormat, PdfBookmark, PdfColor, PdfDocument, PdfPage, PdfPageIndex, PdfPoints, PdfRect, PdfRenderConfig,
     Pdfium, PdfiumError,
 };
 
 use recto_core::geom::PageRect;
 
-use crate::{Bitmap, DocInfo, OutlineEntry, PageText, RenderRequest, Renderer, Size};
+use crate::{Bitmap, DocInfo, OutlineEntry, PageText, RenderRequest, Renderer, Size, Tile};
 
-/// Largest bitmap side, in pixels. Bigger requests must be split into tiles.
+/// Largest bitmap side, in pixels. Bigger pages must be rendered as tiles.
 const MAX_SIDE: f32 = 16_384.0;
+/// Largest page side, in pixels, that tiles can address.
+const MAX_PAGE_PIXELS: f32 = 1_000_000.0;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RenderError {
@@ -25,6 +27,8 @@ pub enum RenderError {
     NoDocument,
     #[error("page {index} is out of range (the document has {count} pages)")]
     PageOutOfRange { index: usize, count: usize },
+    #[error("tile {0:?} is empty or too large")]
+    InvalidTile(Tile),
     #[error("invalid render scale {0}")]
     InvalidScale(f32),
 }
@@ -63,7 +67,9 @@ impl Renderer for PdfiumRenderer {
     fn render(&mut self, request: &RenderRequest) -> Result<Bitmap, RenderError> {
         let page = self.page(request.index)?;
         let largest = page.width().value.max(page.height().value) * request.scale;
-        if !(request.scale > 0.0 && largest.is_finite() && largest <= MAX_SIDE) {
+        // A whole page must fit in one bitmap; a tile only has to fit the page in i32 coordinates.
+        let limit = if request.tile.is_some() { MAX_PAGE_PIXELS } else { MAX_SIDE };
+        if !(request.scale > 0.0 && largest.is_finite() && largest <= limit) {
             return Err(RenderError::InvalidScale(request.scale));
         }
         let config = PdfRenderConfig::new()
@@ -72,16 +78,19 @@ impl Renderer for PdfiumRenderer {
             .set_reverse_byte_order(false) // pdfium-render defaults to RGBA output
             .set_clear_color(PdfColor::WHITE)
             .render_form_data(true);
-        let bitmap = page.render_with_config(&config)?;
-        let (width, height) = (bitmap.width() as usize, bitmap.height() as usize);
-        let mut pixels = bitmap.as_raw_bytes();
-        // PDFium may pad rows; `Bitmap` rows are tight.
-        let stride = pixels.len() / height.max(1);
-        if stride != width * 4 {
-            pixels = pixels.chunks_exact(stride).flat_map(|row| &row[..width * 4]).copied().collect();
-        }
-        // Opaque white background: straight and premultiplied alpha are the same here.
-        Ok(Bitmap { width: width as u32, height: height as u32, pixels })
+        let bitmap = match request.tile {
+            None => page.render_with_config(&config)?,
+            Some(tile) => {
+                if tile.width == 0 || tile.height == 0 || tile.width as f32 > MAX_SIDE || tile.height as f32 > MAX_SIDE {
+                    return Err(RenderError::InvalidTile(tile));
+                }
+                // The page is placed so the tile's corner lands on the bitmap's; PDFium clips the rest.
+                let mut bitmap = PdfBitmap::empty(tile.width as i32, tile.height as i32, PdfBitmapFormat::BGRA)?;
+                page.render_into_bitmap_with_config(&mut bitmap, &config.set_origin(-(tile.x as i32), -(tile.y as i32)))?;
+                bitmap
+            }
+        };
+        Ok(tight(&bitmap))
     }
 
     fn text(&mut self, index: usize) -> Result<PageText, RenderError> {
@@ -216,4 +225,16 @@ fn bookmark_page(bookmark: &PdfBookmark<'_>) -> Option<usize> {
     let action = bookmark.action()?;
     let local = action.as_local_destination_action()?;
     local.destination().ok()?.page_index().ok().map(|i| i as usize)
+}
+
+/// Copies a PDFium bitmap into a `Bitmap`, dropping any row padding.
+fn tight(bitmap: &PdfBitmap<'_>) -> Bitmap {
+    let (width, height) = (bitmap.width() as usize, bitmap.height() as usize);
+    let mut pixels = bitmap.as_raw_bytes();
+    let stride = pixels.len() / height.max(1);
+    if stride != width * 4 {
+        pixels = pixels.chunks_exact(stride).flat_map(|row| &row[..width * 4]).copied().collect();
+    }
+    // Opaque white background: straight and premultiplied alpha are the same here.
+    Bitmap { width: width as u32, height: height as u32, pixels }
 }

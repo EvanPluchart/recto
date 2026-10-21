@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use recto_core::PageId;
-use recto_render::{DocInfo, OutlineEntry, PdfiumRenderer, Purpose, RenderRequest, RenderThread, Response, Size};
+use recto_render::{DocInfo, OutlineEntry, PdfiumRenderer, Purpose, RenderRequest, RenderThread, Response, Size, Tile};
 
 fn fixture(name: &str) -> Arc<[u8]> {
     let path = format!("{}/../../tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
@@ -32,8 +32,8 @@ fn renders_the_fixtures() {
     assert!(info.outline.is_empty());
 
     let generation = thread.next_generation();
-    let request =
-        RenderRequest { page: PageId { source: 0, index: 0 }, index: 0, scale: 1.0, generation, purpose: Purpose::Page };
+    let page = PageId { source: 0, index: 0 };
+    let request = RenderRequest { page, index: 0, scale: 1.0, generation, purpose: Purpose::Page, tile: None };
     thread.request(request);
     let bitmap = match thread.responses().recv().unwrap() {
         Response::Rendered { request: answered, result } => {
@@ -54,6 +54,17 @@ fn renders_the_fixtures() {
     // The blue band drawn at the top of page 1, in BGRA order.
     let [b, g, r, a] = pixel(300, 110);
     assert!(b > r + 100 && b > g + 50 && a == 255, "expected blue, got {:?}", [r, g, b, a]);
+
+    // A tile matches the same pixels of a whole-page render at the same scale.
+    let whole = render(&thread, RenderRequest { scale: 2.0, generation: thread.next_generation(), ..request });
+    let tile = Tile { x: 200, y: 180, width: 300, height: 100 };
+    let generation = thread.next_generation();
+    let part = render(&thread, RenderRequest { scale: 2.0, generation, tile: Some(tile), ..request });
+    assert_eq!((part.width, part.height), (300, 100));
+    for (row, line) in part.pixels.chunks_exact(part.width as usize * 4).enumerate() {
+        let start = ((tile.y as usize + row) * whole.width as usize + tile.x as usize) * 4;
+        assert_eq!(line, &whole.pixels[start..start + 300 * 4], "tile row {row} differs");
+    }
 
     // Past the last page: an error, not a panic.
     let generation = thread.next_generation();
@@ -122,6 +133,17 @@ fn page_text(thread: &RenderThread, index: usize) -> recto_render::PageText {
     match thread.responses().recv().unwrap() {
         Response::Text { index: answered, result } => {
             assert_eq!(answered, index);
+            result.unwrap()
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+fn render(thread: &RenderThread, request: RenderRequest) -> recto_render::Bitmap {
+    thread.request(request);
+    match thread.responses().recv().unwrap() {
+        Response::Rendered { request: answered, result } => {
+            assert_eq!(answered, request);
             result.unwrap()
         }
         other => panic!("unexpected {other:?}"),

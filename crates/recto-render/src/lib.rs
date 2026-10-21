@@ -25,6 +25,17 @@ pub struct RenderRequest {
     pub generation: u64,
     /// What the bitmap is for. Ignored by the renderer, echoed back with the result.
     pub purpose: Purpose,
+    /// Part of the page to render, for pages too large for one bitmap; `None` renders all of it.
+    pub tile: Option<Tile>,
+}
+
+/// A rectangle of the page bitmap at the request's scale, in pixels from the top-left corner.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Tile {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

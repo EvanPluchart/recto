@@ -151,7 +151,8 @@ mod tests {
     }
 
     fn request(index: usize, generation: u64) -> RenderRequest {
-        RenderRequest { page: PageId { source: 0, index: index as u32 }, index, scale: 1.0, generation, purpose: Purpose::Page }
+        let page = PageId { source: 0, index: index as u32 };
+        RenderRequest { page, index, scale: 1.0, generation, purpose: Purpose::Page, tile: None }
     }
 
     #[test]
