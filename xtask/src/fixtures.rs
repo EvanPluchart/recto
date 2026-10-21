@@ -9,7 +9,8 @@ use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref, Str, TextStr};
 /// Committed fixtures, by file name.
 type Fixture = (&'static str, fn() -> Vec<u8>);
 /// Byte-for-byte reproducible fixtures; the up-to-date test compares them with the generators.
-const FIXTURES: [Fixture; 2] = [("sample.pdf", sample_pdf), ("layout.pdf", layout_pdf)];
+const FIXTURES: [Fixture; 3] =
+    [("sample.pdf", sample_pdf), ("layout.pdf", layout_pdf), ("inherited.pdf", inherited_pdf)];
 /// Encrypted: the `/U` entry ends with arbitrary bytes, which `lopdf` draws at random.
 const PROTECTED: &str = "protected.pdf";
 
@@ -44,6 +45,49 @@ const IMAGE_SIZE: u32 = 64;
 pub fn layout_pdf() -> Vec<u8> {
     let outline = [("Portrait", 0, 0), ("Landscape", 1, 1), ("Rotated", 0, 2), ("Letter", 0, 3)];
     text_pages(&[(A4, 0), (A4_LANDSCAPE, 0), (A4, 90), (LETTER, 0)], &outline)
+}
+
+/// Three pages whose resources, media box and rotation are inherited from the page tree:
+/// the root `Pages` holds the font and an A4 media box; a nested `Pages` overrides the media box
+/// (US Letter) and adds `/Rotate 90` for pages 1 and 2; page 3 sits under the root and has its
+/// own landscape media box. Editing must copy these attributes onto the pages it re-parents.
+pub fn inherited_pdf() -> Vec<u8> {
+    let catalog_id = Ref::new(1);
+    let root_id = Ref::new(2);
+    let middle_id = Ref::new(3);
+    let font_id = Ref::new(4);
+    let pages = [(Ref::new(10), middle_id), (Ref::new(12), middle_id), (Ref::new(14), root_id)];
+    let font = Name(b"F1");
+
+    let mut pdf = Pdf::new();
+    pdf.catalog(catalog_id).pages(root_id);
+    let mut root = pdf.pages(root_id);
+    root.kids([middle_id, pages[2].0]).count(3);
+    root.insert(Name(b"MediaBox")).array().items([0.0, 0.0, 595.0, 842.0]);
+    root.insert(Name(b"Resources")).dict().insert(Name(b"Font")).dict().pair(font, font_id);
+    root.finish();
+    let mut middle = pdf.pages(middle_id);
+    middle.parent(root_id).kids([pages[0].0, pages[1].0]).count(2);
+    middle.insert(Name(b"MediaBox")).array().items([0.0, 0.0, 612.0, 792.0]);
+    middle.pair(Name(b"Rotate"), 90);
+    middle.finish();
+    pdf.type1_font(font_id).base_font(Name(b"Helvetica"));
+
+    for (n, &(page_id, parent)) in pages.iter().enumerate() {
+        let content_id = Ref::new(page_id.get() + 1);
+        let mut page = pdf.page(page_id);
+        page.parent(parent).contents(content_id);
+        if n == 2 {
+            page.media_box(A4_LANDSCAPE);
+        }
+        page.finish();
+        let mut content = Content::new();
+        content.begin_text().set_font(font, 24.0).next_line(56.0, 500.0);
+        content.show(Str(format!("Inherited {}", n + 1).as_bytes()));
+        content.end_text();
+        pdf.stream(content_id, &content.finish());
+    }
+    pdf.finish()
 }
 
 /// User password of `protected.pdf`.
