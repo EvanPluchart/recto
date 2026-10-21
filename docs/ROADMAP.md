@@ -22,6 +22,8 @@ Each milestone ends with something you can run and show. Estimates are evenings 
 
 **Done when:** a 500-page PDF scrolls without stutter and search finds every hit.
 
+**Status (2026-10-21):** every item is implemented on `dev`, CI green on the three systems. Checked by screenshots on Windows: continuous view, zoom modes, tiles at 800 %, thumbnails, outline, page field, search on a 500-page file (`cargo xtask gen-large`, 11 hits for "page 25", as expected), password prompt, start screen with recent files, light and dark themes. Not yet checked by hand: scrolling smoothness, mouse and keyboard interaction (selection, Ctrl+wheel, typing in fields, drag and drop, the file dialog), and macOS/Linux. Known limits: text fields take no IME input yet; French UI only through `RECTO_LANG`/`LANG`.
+
 ## M2 — Organize (2–3 weeks)
 
 * Op log, undo/redo, atomic save / save as.

@@ -27,20 +27,23 @@ tests/fixtures/  small PDFs used by integration tests
 
 ```rust
 pub trait Renderer {                                                 // built on the render thread, never leaves it
-    fn open(&mut self, bytes: Arc<[u8]>, password: Option<&str>) -> Result<usize>;   // page count (M0)
-    fn render(&mut self, req: &RenderRequest) -> Result<Bitmap>;     // page, scale (rotation, clip later)
-    fn text(&mut self, page: usize) -> Result<Vec<TextSpan>>;        // M1: glyph boxes for selection/search
+    fn open(&mut self, bytes: Arc<[u8]>, password: Option<&str>) -> Result<DocInfo>; // page sizes, outline
+    fn render(&mut self, req: &RenderRequest) -> Result<Bitmap>;     // page, scale, optional tile; BGRA
+    fn text(&mut self, page: usize) -> Result<PageText>;             // chars + boxes, for search/selection
     fn form_fields(&mut self, page: usize) -> Result<Vec<FormField>>; // M3
 }
 ```
 
 * **PDFium is not thread-safe.** One dedicated render thread owns the `Pdfium` instance. `RenderThread::spawn(PdfiumRenderer::new)` takes a constructor and runs it *on* the thread, so the backend is never moved across threads and needs no `Send` bound. The UI sends `RenderRequest`s over a `flume` channel and receives bitmaps back. Requests carry a generation number (`RenderThread::next_generation`); stale ones (old zoom, scrolled away) are dropped before rendering.
 * **Loading PDFium**: `RECTO_PDFIUM_DIR` if set, then the executable's folder, then (debug builds only) `target/pdfium/` as filled by `cargo xtask fetch-pdfium`.
-* **Tiles**: at high zoom a page is rendered as 512×512 tiles, so only the visible part is rasterised. An LRU cache keyed by `(PageId, scale bucket, tile)` holds results.
+* **Requests** carry a `purpose` (page, thumbnail), echoed back so the UI can route results. Text requests (`RenderThread::text`) have no generation and are never dropped.
+* **Tiles**: a page whose longest side exceeds 4096 device pixels is drawn as a backdrop of at most 2048 px plus 512×512 tiles over the part on screen (`RenderRequest::tile`), so only the visible part is rasterised at full resolution. The UI keeps tiles keyed by `(page, scale, tile)` while they are on screen and at the current zoom.
+* **Text boxes** are returned in displayed page space (see Coordinates), mapped through PDFium's own page-to-device transform so crop boxes and `/Rotate` match the bitmaps.
 * **Backends** are cargo features: `pdfium` (default), `hayro` (pure Rust, experimental). Switching backend must need zero changes outside this crate.
 
 ### recto-app: the interface
 
+* **M1 state**: one `Viewer` entity per window shows one document (`viewer.rs`, with `sidebar`, `search`, `selection`, `files`, `password` submodules). Page layout math lives in `recto-core::layout`, text search in `recto-core::text`. The structure below is the target once editing starts.
 * One `Workspace` entity per window, holding one or more `DocumentTab`s.
 * A `DocumentTab` owns a `recto_core::Document` and a handle to the render thread. Views:
   * `PageCanvas`: the virtualised, continuously scrolling page list. Only visible pages (plus a margin) are requested.
@@ -48,17 +51,19 @@ pub trait Renderer {                                                 // built on
   * `Toolbar` + `Inspector`: the active tool and its options.
 * **Tools** are a state machine (`Tool::Select | Text | Highlight | Shape | Sign | Redact | …`). A tool turns pointer events into `Op`s. It never edits the document directly.
 * **Slow work** (build, save, OCR, compress) runs on `cx.background_executor()` and reports back with `this.update(cx, …)`.
-* **Text** goes through `i18n::t`. Source strings are English. French is the first translation.
+* **Text** goes through `i18n::t`. Source strings are English. French is the first translation (selected by `RECTO_LANG`, `LC_ALL` or `LANG` for now; system locale detection comes later).
+* **Recent files** live in the per-user config folder (`%APPDATA%\Recto`, `~/Library/Application Support/Recto`, `$XDG_CONFIG_HOME/recto`); `RECTO_CONFIG_DIR` overrides it.
 
 ## Coordinates
 
-Three spaces, one conversion module (`recto-core::geom`):
+Four spaces; the page-level ones are defined in `recto-core::geom`, the continuous layout in `recto-core::layout`:
 
 | Space | Unit | Origin | Used by |
 |---|---|---|---|
-| PDF user space | point (1/72 in) | bottom-left, per page `MediaBox`/`CropBox` | everything stored in `Op`s |
+| PDF user space | point (1/72 in) | bottom-left, per page `MediaBox`/`CropBox` | everything stored in `Op`s (`geom::Rect`) |
+| Displayed page space | point | top-left of the page as shown, `/Rotate` applied | text boxes, highlights (`geom::PageRect`) |
 | Page pixel space | px at render scale | top-left | bitmaps, tiles |
-| Window space | GPUI logical px | top-left of the window | pointer events, layout |
+| Window space | GPUI logical px | top-left of the window; content space adds the scroll offset | pointer events, layout (`layout::PageLayout`) |
 
 `Op`s only ever store PDF user space, so edits survive zoom, rotation and DPI changes.
 
@@ -77,7 +82,7 @@ PageCanvas ──> RenderRequest (visible pages, scale) ────────
 * Code, comments and commit messages in English.
 * No `unwrap()` on anything that touches a user file. Errors surface in the UI as a toast with the cause.
 * Irreversible actions (overwrite original, redact) ask first. Redaction removes the content, never only covers it.
-* Test flags on the binary, for screenshots and agents: `recto [file.pdf] [--page=N] [--zoom=PCT] [--tool=NAME] [--dark|--light]`.
+* Test flags on the binary, for screenshots and agents: `recto [file.pdf] [--page=N] [--zoom=PCT] [--sidebar=thumbnails|outline] [--find=TEXT] [--tool=NAME] [--dark|--light]` (`--tool` arrives with M3). Without `--zoom` the page fits the window width.
 
 ## Platform notes
 

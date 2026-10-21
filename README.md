@@ -4,7 +4,7 @@ A fast, offline PDF viewer and editor for Windows, macOS and Linux, written in R
 
 Recto aims at the everyday PDF jobs that usually send people to an online service: merge, split, reorder, rotate, annotate, sign, fill forms, compress, watermark, protect, redact. Files never leave your machine, and there is no daily task limit.
 
-> **Status:** milestone M0. Recto opens a PDF and shows one page; nothing else yet. See [docs/ROADMAP.md](docs/ROADMAP.md).
+> **Status:** milestone M1 (viewer) on `dev`: continuous scroll, zoom, thumbnails, outline, search, text selection, recent files, password-protected files. No editing yet. See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Planned features
 
@@ -29,9 +29,10 @@ Why these choices: [docs/decisions](docs/decisions).
 ```sh
 cargo xtask fetch-pdfium            # downloads the pinned PDFium build into target/pdfium/
 cargo run -p recto -- tests/fixtures/sample.pdf --page=1 --zoom=100
+cargo xtask gen-large               # target/large.pdf, 500 pages, for scrolling and search checks
 ```
 
-`cargo xtask gen-fixtures` regenerates `tests/fixtures/sample.pdf`. On Linux, GPUI needs the X11/Wayland, xkbcommon, Vulkan and fontconfig development packages (see `.github/workflows/ci.yml`).
+`cargo xtask gen-fixtures` regenerates the committed fixtures in `tests/fixtures/`. On Linux, GPUI needs the X11/Wayland, xkbcommon, Vulkan and fontconfig development packages (see `.github/workflows/ci.yml`).
 
 ## Documentation
 
