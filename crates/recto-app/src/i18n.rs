@@ -11,7 +11,6 @@ enum Lang {
 
 const FR: &[(&str, &str)] = &[
     ("Recto", "Recto"),
-    ("No document. Usage: recto file.pdf", "Aucun document. Usage : recto fichier.pdf"),
     ("Cannot open the document", "Impossible d’ouvrir le document"),
     ("Cannot start the renderer", "Impossible de démarrer le moteur de rendu"),
     ("Cannot render the page", "Impossible d’afficher la page"),
@@ -31,6 +30,12 @@ const FR: &[(&str, &str)] = &[
     ("Previous", "Précédent"),
     ("Next", "Suivant"),
     ("Close", "Fermer"),
+    ("Open…", "Ouvrir…"),
+    ("Recent", "Récents"),
+    ("Open a PDF…", "Ouvrir un PDF…"),
+    ("Or drop a file onto this window.", "Ou déposez un fichier sur cette fenêtre."),
+    ("Recent files", "Fichiers récents"),
+    ("No recent files", "Aucun fichier récent"),
 ];
 
 fn lang() -> Lang {

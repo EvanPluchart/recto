@@ -49,6 +49,14 @@ impl Search {
         Self { open: false, input, query: String::new(), hits: Vec::new(), current: None, scan_next: 0, origin: 0 }
     }
 
+    /// Forgets the hits of the previous document; an open bar searches the new one with the same query.
+    pub fn restart(&mut self) {
+        self.hits.clear();
+        self.current = None;
+        self.scan_next = 0;
+        self.origin = 0;
+    }
+
     /// Hits on page `page`, with their index in `hits`.
     fn on_page(&self, page: usize) -> impl Iterator<Item = (usize, &Hit)> {
         let start = self.hits.partition_point(|hit| hit.page < page);

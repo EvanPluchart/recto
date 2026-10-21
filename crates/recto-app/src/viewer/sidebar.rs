@@ -49,6 +49,11 @@ impl Sidebar {
         Self { tab, thumbnails: UniformListScrollHandle::new(), outline: UniformListScrollHandle::new(), followed: None }
     }
 
+    /// After another document is opened, the thumbnail list follows its current page again.
+    pub fn forget_followed(&mut self) {
+        self.followed = None;
+    }
+
     pub fn width(&self) -> f32 {
         if self.tab.is_some() { WIDTH } else { 0.0 }
     }

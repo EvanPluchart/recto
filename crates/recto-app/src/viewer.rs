@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use gpui::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, IntoElement, KeyBinding, ParentElement, Render, RenderImage,
-    MouseButton, ScrollHandle, ScrollWheelEvent, SharedString, Styled, Window, WindowAppearance, actions, div, img, point,
+    ExternalPaths, MouseButton, ScrollHandle, ScrollWheelEvent, SharedString, Styled, Window, WindowAppearance, actions, div, img, point,
     prelude::*, px,
 };
 use recto_core::geom::{Point, Size};
@@ -14,6 +14,7 @@ use recto_core::layout::{self, PageLayout};
 use recto_core::{Document, PageId};
 use recto_render::{Bitmap, DocInfo, PageText, PdfiumRenderer, Purpose, RenderRequest, RenderThread, Response};
 
+mod files;
 mod search;
 mod selection;
 mod sidebar;
@@ -22,7 +23,7 @@ pub use self::sidebar::Tab;
 use self::search::Search;
 use self::selection::Selection;
 use self::sidebar::Sidebar;
-use crate::Args;
+use crate::{Args, recent};
 use crate::i18n::t;
 use crate::text_input::{TextInput, TextInputEvent};
 use crate::theme::Theme;
@@ -31,7 +32,7 @@ actions!(
     viewer,
     [
         ZoomIn, ZoomOut, ActualSize, FitWidth, FitPage, GoToPage, LineDown, LineUp, ScreenDown, ScreenUp, FirstPage,
-        LastPage, ToggleThumbnails, ToggleOutline, Find, FindNext, FindPrevious, CopySelection
+        LastPage, ToggleThumbnails, ToggleOutline, Find, FindNext, FindPrevious, CopySelection, OpenFile
     ]
 );
 
@@ -102,6 +103,8 @@ pub struct Viewer {
     sidebar: Sidebar,
     search: Search,
     selection: Option<Selection>,
+    recent: Vec<std::path::PathBuf>,
+    recent_menu: bool,
 }
 
 impl Viewer {
@@ -132,12 +135,11 @@ impl Viewer {
             sidebar: Sidebar::new(args.sidebar),
             search,
             selection: None,
+            recent: recent::load(),
+            recent_menu: false,
         };
-        if let Some(path) = &args.file {
-            viewer.state = match viewer.start(path, args.page, window, cx) {
-                Ok(open) => State::Open(Box::new(open)),
-                Err(message) => State::Error(message),
-            };
+        if let Some(path) = args.file {
+            viewer.open_path(path, args.page, window, cx);
         }
         window.focus(&viewer.focus);
         if let Some(query) = args.find {
@@ -458,21 +460,30 @@ impl Viewer {
             .border_color(theme.border)
             .text_color(theme.text)
             .text_sm()
+            .child(button("open", "Open…").on_click(cx.listener(|this, _, window, cx| this.prompt_open(window, cx))))
+            .child(button("recent", "Recent").on_click(cx.listener(|this, _, _, cx| {
+                this.recent = recent::load();
+                this.recent_menu = true;
+                cx.notify();
+            })))
             .child(
                 button("sidebar", "Sidebar")
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(Tab::Thumbnails, cx))),
             )
-            .child(button("zoom-out", "−").on_click(cx.listener(|this, _, window, cx| this.step_zoom(false, window, cx))))
-            .child(div().w(px(56.)).flex().justify_center().child(zoom_label))
-            .child(button("zoom-in", "+").on_click(cx.listener(|this, _, window, cx| this.step_zoom(true, window, cx))))
-            .child(
-                button("fit-width", "Fit width")
-                    .on_click(cx.listener(|this, _, window, cx| this.set_zoom(ZoomMode::FitWidth, None, window, cx))),
-            )
-            .child(
-                button("fit-page", "Fit page")
-                    .on_click(cx.listener(|this, _, window, cx| this.set_zoom(ZoomMode::FitPage, None, window, cx))),
-            )
+            // Zoom controls only mean something with a document.
+            .when(page_count.is_some(), |bar| {
+                bar.child(button("zoom-out", "−").on_click(cx.listener(|this, _, window, cx| this.step_zoom(false, window, cx))))
+                    .child(div().w(px(56.)).flex().justify_center().child(zoom_label))
+                    .child(button("zoom-in", "+").on_click(cx.listener(|this, _, window, cx| this.step_zoom(true, window, cx))))
+                    .child(
+                        button("fit-width", "Fit width")
+                            .on_click(cx.listener(|this, _, window, cx| this.set_zoom(ZoomMode::FitWidth, None, window, cx))),
+                    )
+                    .child(
+                        button("fit-page", "Fit page")
+                            .on_click(cx.listener(|this, _, window, cx| this.set_zoom(ZoomMode::FitPage, None, window, cx))),
+                    )
+            })
             .child(div().flex_1())
             .children(page_field)
     }
@@ -491,7 +502,7 @@ impl Viewer {
                 .into_any_element()
         };
         let open = match &self.state {
-            State::Empty => return message(t("No document. Usage: recto file.pdf").into()),
+            State::Empty => return self.start_screen(cx),
             State::Error(text) => return message(text.clone()),
             State::Open(open) => open,
         };
@@ -578,6 +589,7 @@ impl Render for Viewer {
             let current = (self.current_page() + 1).to_string();
             self.page_input.update(cx, |input, cx| input.set_text(current, cx));
         }
+        let theme = self.theme;
         div()
             .key_context("Viewer")
             .track_focus(&self.focus)
@@ -607,13 +619,18 @@ impl Render for Viewer {
             }))
             .on_action(cx.listener(|this, _: &FirstPage, window, cx| this.go_to_page(0, window, cx)))
             .on_action(cx.listener(|this, _: &LastPage, window, cx| this.go_to_page(usize::MAX, window, cx)))
+            .on_action(cx.listener(|this, _: &OpenFile, window, cx| this.prompt_open(window, cx)))
+            .on_drop(cx.listener(Self::on_drop_paths))
+            .drag_over::<ExternalPaths>(move |style, _, _, _| style.border_2().border_color(theme.accent))
+            .relative()
             .size_full()
             .flex()
             .flex_col()
-            .bg(self.theme.canvas)
+            .bg(theme.canvas)
             .child(self.toolbar(cx))
             .children(self.search_bar(cx))
             .child(div().flex().flex_1().min_h_0().children(self.sidebar(window, cx)).child(self.pages(window, cx)))
+            .children(self.recent_menu(cx))
     }
 }
 
@@ -631,6 +648,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("f4", ToggleThumbnails, Some("Viewer")),
         KeyBinding::new("shift-f4", ToggleOutline, Some("Viewer")),
         KeyBinding::new("secondary-f", Find, Some("Viewer")),
+        KeyBinding::new("secondary-o", OpenFile, Some("Viewer")),
         KeyBinding::new("f3", FindNext, Some("Viewer")),
         KeyBinding::new("shift-f3", FindPrevious, Some("Viewer")),
         KeyBinding::new("secondary-c", CopySelection, PAGES),
