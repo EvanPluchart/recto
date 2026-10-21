@@ -16,6 +16,10 @@ const FR: &[(&str, &str)] = &[
     ("Cannot start the renderer", "Impossible de démarrer le moteur de rendu"),
     ("Cannot render the page", "Impossible d’afficher la page"),
     ("Loading…", "Chargement…"),
+    ("Fit width", "Pleine largeur"),
+    ("Fit page", "Page entière"),
+    ("−", "−"),
+    ("+", "+"),
 ];
 
 fn lang() -> Lang {
