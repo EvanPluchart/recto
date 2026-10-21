@@ -2,7 +2,7 @@
 
 use std::ops::Range;
 
-use crate::geom::PageRect;
+use crate::geom::{PageRect, Point};
 
 /// The characters of one page in reading order, each with its box on the displayed page.
 /// Characters the extractor generated (line breaks, inferred spaces) have an empty box.
@@ -56,6 +56,31 @@ impl PageText {
             }
         }
         hits
+    }
+
+    /// Caret position (a char boundary, `0..=len`) nearest to `point`, in displayed page points.
+    /// The nearest character wins; the caret goes before or after it depending on which half of
+    /// its box the point is in. `None` when the page has no positioned text.
+    pub fn caret_at(&self, point: Point) -> Option<usize> {
+        let distance = |rect: &PageRect| {
+            let dx = (rect.x - point.x).max(point.x - rect.right()).max(0.0);
+            let dy = (rect.y - point.y).max(point.y - rect.bottom()).max(0.0);
+            // Being on the right line matters more than being near horizontally.
+            dx + 4.0 * dy
+        };
+        let (index, rect) = self
+            .boxes
+            .iter()
+            .enumerate()
+            .filter(|(_, rect)| !rect.is_empty())
+            .min_by(|(_, a), (_, b)| distance(a).total_cmp(&distance(b)))?;
+        Some(if point.x > rect.x + rect.width / 2.0 { index + 1 } else { index })
+    }
+
+    /// The text of `range`, with the extractor's `\r\n` line breaks as `\n`.
+    pub fn slice(&self, range: Range<usize>) -> String {
+        let end = range.end.min(self.chars.len());
+        self.chars[range.start.min(end)..end].iter().filter(|&&c| c != '\r').collect()
     }
 
     /// Boxes covering `range`, one per line of text. Lines end at the line breaks the extractor
@@ -121,6 +146,25 @@ mod tests {
     #[test]
     fn occurrences_do_not_overlap() {
         assert_eq!(page("aaaa").find("aa"), vec![0..2, 2..4]);
+    }
+
+    #[test]
+    fn carets_follow_the_pointer() {
+        let text = page("ab\ncd");
+        let at = |x, y| text.caret_at(Point { x, y });
+        assert_eq!(at(2.0, 5.0), Some(0)); // left half of 'a'
+        assert_eq!(at(8.0, 5.0), Some(1)); // right half of 'a'
+        assert_eq!(at(500.0, 5.0), Some(2)); // past the end of line 1
+        assert_eq!(at(-50.0, 25.0), Some(3)); // before 'c' on line 2
+        assert_eq!(at(18.0, 1000.0), Some(5)); // below everything: nearest is 'd', right half
+        assert_eq!(PageText::default().caret_at(Point { x: 0.0, y: 0.0 }), None);
+    }
+
+    #[test]
+    fn slices_drop_carriage_returns() {
+        let text = page("ab\r\ncd");
+        assert_eq!(text.slice(1..6), "b\ncd");
+        assert_eq!(text.slice(4..99), "cd");
     }
 
     #[test]
