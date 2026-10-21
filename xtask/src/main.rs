@@ -1,7 +1,8 @@
 //! Developer tasks: `cargo xtask <task>`.
 //!
 //! * `fetch-pdfium`: downloads the pinned PDFium build for the host into `target/pdfium/`.
-//! * `gen-fixtures`: writes `tests/fixtures/sample.pdf`.
+//! * `gen-fixtures`: writes the committed fixtures in `tests/fixtures/`.
+//! * `gen-large [PAGES]`: writes `target/large.pdf` (500 pages by default) for performance checks.
 
 mod fixtures;
 
@@ -20,8 +21,12 @@ fn main() -> Result<()> {
     match task.as_deref() {
         Some("fetch-pdfium") => fetch_pdfium(),
         Some("gen-fixtures") => fixtures::generate(&workspace_root()),
+        Some("gen-large") => {
+            let pages = std::env::args().nth(2).and_then(|n| n.parse().ok()).unwrap_or(500);
+            fixtures::generate_large(&workspace_root(), pages)
+        }
         _ => {
-            eprintln!("usage: cargo xtask <fetch-pdfium | gen-fixtures>");
+            eprintln!("usage: cargo xtask <fetch-pdfium | gen-fixtures | gen-large [PAGES]>");
             std::process::exit(2);
         }
     }

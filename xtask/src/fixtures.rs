@@ -6,16 +6,69 @@ use std::path::Path;
 use anyhow::Result;
 use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref, Str};
 
+/// Committed fixtures, by file name.
+type Fixture = (&'static str, fn() -> Vec<u8>);
+const FIXTURES: [Fixture; 2] = [("sample.pdf", sample_pdf), ("layout.pdf", layout_pdf)];
+
 pub fn generate(root: &Path) -> Result<()> {
-    let path = root.join("tests/fixtures/sample.pdf");
-    std::fs::create_dir_all(path.parent().expect("fixture has a parent"))?;
-    std::fs::write(&path, sample_pdf())?;
-    println!("wrote {}", path.display());
+    let dir = root.join("tests/fixtures");
+    std::fs::create_dir_all(&dir)?;
+    for (name, build) in FIXTURES {
+        std::fs::write(dir.join(name), build())?;
+        println!("wrote {}", dir.join(name).display());
+    }
+    Ok(())
+}
+
+/// `target/large.pdf`: many pages for scrolling and search checks. Not committed.
+pub fn generate_large(root: &Path, pages: usize) -> Result<()> {
+    let path = root.join("target/large.pdf");
+    let specs: Vec<_> = (0..pages).map(|_| (A4, 0)).collect();
+    std::fs::write(&path, text_pages(&specs))?;
+    println!("wrote {} ({pages} pages)", path.display());
     Ok(())
 }
 
 const A4: Rect = Rect { x1: 0.0, y1: 0.0, x2: 595.0, y2: 842.0 };
+const A4_LANDSCAPE: Rect = Rect { x1: 0.0, y1: 0.0, x2: 842.0, y2: 595.0 };
+const LETTER: Rect = Rect { x1: 0.0, y1: 0.0, x2: 612.0, y2: 792.0 };
 const IMAGE_SIZE: u32 = 64;
+
+/// Mixed page geometry: A4 portrait, A4 landscape, A4 portrait with `/Rotate 90`, US Letter.
+pub fn layout_pdf() -> Vec<u8> {
+    text_pages(&[(A4, 0), (A4_LANDSCAPE, 0), (A4, 90), (LETTER, 0)])
+}
+
+/// One line of Helvetica per page, on pages of the given media box and rotation.
+fn text_pages(specs: &[(Rect, i32)]) -> Vec<u8> {
+    let catalog_id = Ref::new(1);
+    let tree_id = Ref::new(2);
+    let font_id = Ref::new(3);
+    let font = Name(b"F1");
+    let page_ids: Vec<Ref> = (0..specs.len() as i32).map(|i| Ref::new(10 + 2 * i)).collect();
+
+    let mut pdf = Pdf::new();
+    pdf.catalog(catalog_id).pages(tree_id);
+    pdf.pages(tree_id).kids(page_ids.iter().copied()).count(specs.len() as i32);
+    pdf.type1_font(font_id).base_font(Name(b"Helvetica"));
+    for (n, (&(media_box, rotate), &page_id)) in specs.iter().zip(&page_ids).enumerate() {
+        let content_id = Ref::new(page_id.get() + 1);
+        let mut page = pdf.page(page_id);
+        page.media_box(media_box).parent(tree_id).contents(content_id);
+        if rotate != 0 {
+            page.rotate(rotate);
+        }
+        page.resources().fonts().pair(font, font_id);
+        page.finish();
+
+        let mut content = Content::new();
+        content.begin_text().set_font(font, 24.0).next_line(56.0, media_box.y2 - 80.0);
+        content.show(Str(format!("Page {} ({} x {}, rotate {rotate})", n + 1, media_box.x2, media_box.y2).as_bytes()));
+        content.end_text();
+        pdf.stream(content_id, &content.finish());
+    }
+    pdf.finish()
+}
 
 /// Three A4 pages of Helvetica text; page 1 also carries a colour band and a gradient image.
 pub fn sample_pdf() -> Vec<u8> {
@@ -87,9 +140,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn committed_fixture_is_up_to_date() {
-        let committed = std::fs::read(crate::workspace_root().join("tests/fixtures/sample.pdf"))
-            .expect("tests/fixtures/sample.pdf exists; run `cargo xtask gen-fixtures`");
-        assert!(committed == sample_pdf(), "sample.pdf is stale; run `cargo xtask gen-fixtures`");
+    fn committed_fixtures_are_up_to_date() {
+        for (name, build) in FIXTURES {
+            let path = crate::workspace_root().join("tests/fixtures").join(name);
+            let committed = std::fs::read(&path).unwrap_or_else(|_| panic!("{name} missing; run `cargo xtask gen-fixtures`"));
+            assert!(committed == build(), "{name} is stale; run `cargo xtask gen-fixtures`");
+        }
     }
 }
