@@ -3,6 +3,7 @@
 
 pub mod document;
 pub mod geom;
+pub mod layout;
 pub mod op;
 
 pub use document::{Document, OpenError};
