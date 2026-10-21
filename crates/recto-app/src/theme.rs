@@ -17,8 +17,11 @@ pub struct Theme {
     pub field: Rgba,
     /// Focus rings, current item.
     pub accent: Rgba,
-    /// Selected text, search hits.
+    /// Selected text.
     pub selection: Rgba,
+    /// Search hits, and the current one.
+    pub hit: Rgba,
+    pub hit_current: Rgba,
 }
 
 impl Theme {
@@ -35,6 +38,8 @@ impl Theme {
                 field: rgb(0x1f1f1f),
                 accent: rgb(0x4c8dff),
                 selection: rgba(0x4c8dff66),
+                hit: rgba(0xffd23f59),
+                hit_current: rgba(0xff8a0099),
             }
         } else {
             Self {
@@ -48,6 +53,8 @@ impl Theme {
                 field: rgb(0xffffff),
                 accent: rgb(0x2f6fdf),
                 selection: rgba(0x2f6fdf55),
+                hit: rgba(0xffd23f73),
+                hit_current: rgba(0xff8a0099),
             }
         }
     }

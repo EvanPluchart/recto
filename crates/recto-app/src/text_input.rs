@@ -9,8 +9,10 @@ use gpui::{
 use crate::theme::Theme;
 
 pub enum TextInputEvent {
-    /// Enter was pressed.
-    Commit(String),
+    /// The text was edited.
+    Changed(String),
+    /// Enter was pressed, with or without Shift.
+    Commit { text: String, shift: bool },
     /// Escape was pressed.
     Cancel,
 }
@@ -126,8 +128,9 @@ impl TextInput {
         let modifiers = keystroke.modifiers;
         let buffer = &mut self.buffer;
         let len = buffer.len();
+        let before = buffer.text.clone();
         match keystroke.key.as_str() {
-            "enter" => cx.emit(TextInputEvent::Commit(buffer.text.clone())),
+            "enter" => cx.emit(TextInputEvent::Commit { text: buffer.text.clone(), shift: modifiers.shift }),
             "escape" => cx.emit(TextInputEvent::Cancel),
             "backspace" => buffer.delete(true),
             "delete" => buffer.delete(false),
@@ -147,6 +150,9 @@ impl TextInput {
                 Some(typed) if !typed.chars().any(char::is_control) => buffer.insert(typed),
                 _ => return,
             },
+        }
+        if self.buffer.text != before {
+            cx.emit(TextInputEvent::Changed(self.buffer.text.clone()));
         }
         cx.stop_propagation();
         cx.notify();

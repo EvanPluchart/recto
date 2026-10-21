@@ -1,4 +1,4 @@
-//! Recto binary: `recto [file.pdf] [--page=N] [--zoom=PCT] [--sidebar=thumbnails|outline] [--dark|--light]`.
+//! Recto binary: `recto [file.pdf] [--page=N] [--zoom=PCT] [--sidebar=thumbnails|outline] [--find=TEXT] [--dark|--light]`.
 //! Opens one document in a continuous, zoomable page view.
 
 mod i18n;
@@ -24,11 +24,13 @@ pub struct Args {
     pub dark: Option<bool>,
     /// Sidebar shown at start (`--sidebar=thumbnails|outline`).
     pub sidebar: Option<Tab>,
+    /// Search opened at start (`--find=TEXT`).
+    pub find: Option<String>,
 }
 
 impl Args {
     fn parse(args: impl IntoIterator<Item = String>) -> Self {
-        let mut parsed = Args { file: None, page: 1, zoom: None, dark: None, sidebar: None };
+        let mut parsed = Args { file: None, page: 1, zoom: None, dark: None, sidebar: None, find: None };
         for arg in args {
             if let Some(n) = arg.strip_prefix("--page=") {
                 parsed.page = n.parse().ok().filter(|&n| n >= 1).unwrap_or(1);
@@ -36,6 +38,8 @@ impl Args {
                 parsed.zoom = pct.trim_end_matches('%').parse().ok().filter(|z: &f32| z.is_finite() && *z > 0.0);
             } else if let Some(name) = arg.strip_prefix("--sidebar=") {
                 parsed.sidebar = Tab::parse(name);
+            } else if let Some(query) = arg.strip_prefix("--find=") {
+                parsed.find = Some(query.to_owned());
             } else if arg == "--dark" {
                 parsed.dark = Some(true);
             } else if arg == "--light" {
@@ -87,13 +91,13 @@ mod tests {
     fn parses_test_flags() {
         let args = parse("a.pdf --page=3 --zoom=150 --dark --sidebar=outline");
         let expected =
-            Args { file: Some("a.pdf".into()), page: 3, zoom: Some(150.0), dark: Some(true), sidebar: Some(Tab::Outline) };
+            Args { file: Some("a.pdf".into()), page: 3, zoom: Some(150.0), dark: Some(true), sidebar: Some(Tab::Outline), find: None };
         assert_eq!(args, expected);
     }
 
     #[test]
     fn falls_back_on_bad_values() {
         let args = parse("--page=0 --zoom=abc --light");
-        assert_eq!(args, Args { file: None, page: 1, zoom: None, dark: Some(false), sidebar: None });
+        assert_eq!(args, Args { file: None, page: 1, zoom: None, dark: Some(false), sidebar: None, find: None });
     }
 }

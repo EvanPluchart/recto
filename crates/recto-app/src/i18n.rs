@@ -25,6 +25,12 @@ const FR: &[(&str, &str)] = &[
     ("Thumbnails", "Vignettes"),
     ("Outline", "Signets"),
     ("This document has no outline.", "Ce document n’a pas de signets."),
+    ("Find in document", "Rechercher dans le document"),
+    ("Searching…", "Recherche…"),
+    ("No results", "Aucun résultat"),
+    ("Previous", "Précédent"),
+    ("Next", "Suivant"),
+    ("Close", "Fermer"),
 ];
 
 fn lang() -> Lang {

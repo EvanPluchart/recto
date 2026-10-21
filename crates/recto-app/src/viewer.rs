@@ -12,11 +12,13 @@ use gpui::{
 use recto_core::geom::{Point, Size};
 use recto_core::layout::{self, PageLayout};
 use recto_core::{Document, PageId};
-use recto_render::{Bitmap, DocInfo, PdfiumRenderer, Purpose, RenderRequest, RenderThread, Response};
+use recto_render::{Bitmap, DocInfo, PageText, PdfiumRenderer, Purpose, RenderRequest, RenderThread, Response};
 
+mod search;
 mod sidebar;
 
 pub use self::sidebar::Tab;
+use self::search::Search;
 use self::sidebar::Sidebar;
 use crate::Args;
 use crate::i18n::t;
@@ -27,7 +29,7 @@ actions!(
     viewer,
     [
         ZoomIn, ZoomOut, ActualSize, FitWidth, FitPage, GoToPage, LineDown, LineUp, ScreenDown, ScreenUp, FirstPage,
-        LastPage, ToggleThumbnails, ToggleOutline
+        LastPage, ToggleThumbnails, ToggleOutline, Find, FindNext, FindPrevious
     ]
 );
 
@@ -72,6 +74,9 @@ struct Open {
     failed: HashSet<usize>,
     thumbnails: HashMap<usize, Arc<RenderImage>>,
     thumbnails_in_flight: HashSet<usize>,
+    /// Page texts, for search and selection.
+    texts: HashMap<usize, PageText>,
+    texts_in_flight: HashSet<usize>,
     /// Page to scroll to once the first layout exists (from `--page`).
     pending_page: Option<usize>,
 }
@@ -90,6 +95,7 @@ pub struct Viewer {
     focus: FocusHandle,
     page_input: Entity<TextInput>,
     sidebar: Sidebar,
+    search: Search,
 }
 
 impl Viewer {
@@ -98,15 +104,18 @@ impl Viewer {
         let theme = Theme::new(dark);
         let zoom = args.zoom.map_or(ZoomMode::FitWidth, |pct| ZoomMode::Fixed((pct / 100.0).clamp(MIN_ZOOM, MAX_ZOOM)));
         let page_input = cx.new(|cx| TextInput::new("", |c| c.is_ascii_digit(), theme, cx));
-        cx.subscribe_in(&page_input, window, |this, _, event, window, cx| {
-            if let TextInputEvent::Commit(text) = event
-                && let Ok(page) = text.trim().parse::<usize>()
-            {
-                this.go_to_page(page.saturating_sub(1), window, cx);
+        cx.subscribe_in(&page_input, window, |this, _, event, window, cx| match event {
+            TextInputEvent::Commit { text, .. } => {
+                if let Ok(page) = text.trim().parse::<usize>() {
+                    this.go_to_page(page.saturating_sub(1), window, cx);
+                }
+                window.focus(&this.focus);
             }
-            window.focus(&this.focus);
+            TextInputEvent::Cancel => window.focus(&this.focus),
+            TextInputEvent::Changed(_) => {}
         })
         .detach();
+        let search = Search::new(theme, window, cx);
         let mut viewer = Self {
             state: State::Empty,
             theme,
@@ -115,25 +124,35 @@ impl Viewer {
             focus: cx.focus_handle(),
             page_input,
             sidebar: Sidebar::new(args.sidebar),
+            search,
         };
         if let Some(path) = &args.file {
-            viewer.state = match viewer.start(path, args.page, cx) {
+            viewer.state = match viewer.start(path, args.page, window, cx) {
                 Ok(open) => State::Open(Box::new(open)),
                 Err(message) => State::Error(message),
             };
         }
         window.focus(&viewer.focus);
+        if let Some(query) = args.find {
+            viewer.preset_search(query, cx);
+        }
         viewer
     }
 
-    fn start(&mut self, path: &std::path::Path, page: usize, cx: &mut Context<Self>) -> Result<Open, SharedString> {
+    fn start(
+        &mut self,
+        path: &std::path::Path,
+        page: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<Open, SharedString> {
         let document = Document::open(path).map_err(|e| failure("Cannot open the document", e))?;
         let renderer = RenderThread::spawn(PdfiumRenderer::new).map_err(|e| failure("Cannot start the renderer", e))?;
         renderer.open(document.bytes(), None);
         let responses = renderer.responses().clone();
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             while let Ok(response) = responses.recv_async().await {
-                if this.update(cx, |viewer, cx| viewer.receive(response, cx)).is_err() {
+                if this.update_in(cx, |viewer, window, cx| viewer.receive(response, window, cx)).is_err() {
                     break;
                 }
             }
@@ -151,19 +170,24 @@ impl Viewer {
             failed: HashSet::new(),
             thumbnails: HashMap::new(),
             thumbnails_in_flight: HashSet::new(),
+            texts: HashMap::new(),
+            texts_in_flight: HashSet::new(),
             pending_page: Some(page.saturating_sub(1)),
         })
     }
 
-    fn receive(&mut self, response: Response, cx: &mut Context<Self>) {
+    fn receive(&mut self, response: Response, window: &mut Window, cx: &mut Context<Self>) {
         let State::Open(open) = &mut self.state else { return };
         match response {
             Response::Opened(Ok(info)) => {
                 open.pending_page = open.pending_page.map(|page| page.min(info.page_count().saturating_sub(1)));
                 open.info = Some(info);
+                if self.search.open {
+                    return self.advance_search(window, cx);
+                }
             }
             Response::Opened(Err(e)) => self.state = State::Error(failure("Cannot open the document", e)),
-            Response::Text { .. } => {}
+            Response::Text { index, result } => return self.receive_text(index, result, window, cx),
             Response::Rendered { request, result } if request.purpose == Purpose::Thumbnail => match result {
                 Ok(bitmap) => sidebar::store_thumbnail(open, request.index, bitmap, cx),
                 // A missing thumbnail is not worth an error: the page itself reports it.
@@ -181,7 +205,7 @@ impl Viewer {
                             && let Some(image) = to_render_image(bitmap)
                             && let Some(old) = open.pages.insert(request.index, Cached { image, scale: request.scale })
                         {
-                            cx.drop_image(old.image, None);
+                            cx.drop_image(old.image, Some(window));
                         }
                     }
                     Err(e) => {
@@ -480,6 +504,18 @@ impl Viewer {
                     .child(t("Cannot render the page")),
                 None => frame,
             });
+            // Search hits, drawn over the bitmap.
+            let zoom = layout.zoom;
+            let marks = self.highlights(open, index).into_iter().map(|(rect, current)| {
+                div()
+                    .absolute()
+                    .left(px(page.x + rect.x * zoom))
+                    .top(px(page.y + rect.y * zoom))
+                    .w(px(rect.width * zoom))
+                    .h(px(rect.height * zoom))
+                    .bg(if current { theme.hit_current } else { theme.hit })
+            });
+            content = content.children(marks);
         }
         div()
             .id("pages")
@@ -512,6 +548,9 @@ impl Render for Viewer {
             .track_focus(&self.focus)
             .on_action(cx.listener(|this, _: &ToggleThumbnails, _, cx| this.toggle_sidebar(Tab::Thumbnails, cx)))
             .on_action(cx.listener(|this, _: &ToggleOutline, _, cx| this.toggle_sidebar(Tab::Outline, cx)))
+            .on_action(cx.listener(|this, _: &Find, window, cx| this.open_search(window, cx)))
+            .on_action(cx.listener(|this, _: &FindNext, window, cx| this.step_hit(true, window, cx)))
+            .on_action(cx.listener(|this, _: &FindPrevious, window, cx| this.step_hit(false, window, cx)))
             .on_action(cx.listener(|this, _: &ZoomIn, window, cx| this.step_zoom(true, window, cx)))
             .on_action(cx.listener(|this, _: &ZoomOut, window, cx| this.step_zoom(false, window, cx)))
             .on_action(cx.listener(|this, _: &ActualSize, window, cx| this.set_zoom(ZoomMode::Fixed(1.0), None, window, cx)))
@@ -537,6 +576,7 @@ impl Render for Viewer {
             .flex_col()
             .bg(self.theme.canvas)
             .child(self.toolbar(cx))
+            .children(self.search_bar(cx))
             .child(div().flex().flex_1().min_h_0().children(self.sidebar(window, cx)).child(self.pages(window, cx)))
     }
 }
@@ -554,6 +594,9 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-g", GoToPage, Some("Viewer")),
         KeyBinding::new("f4", ToggleThumbnails, Some("Viewer")),
         KeyBinding::new("shift-f4", ToggleOutline, Some("Viewer")),
+        KeyBinding::new("secondary-f", Find, Some("Viewer")),
+        KeyBinding::new("f3", FindNext, Some("Viewer")),
+        KeyBinding::new("shift-f3", FindPrevious, Some("Viewer")),
         KeyBinding::new("down", LineDown, PAGES),
         KeyBinding::new("up", LineUp, PAGES),
         KeyBinding::new("pagedown", ScreenDown, PAGES),
