@@ -12,7 +12,7 @@ Each milestone ends with something you can run and show. Estimates are evenings 
 
 **Status:** CI is green on Windows, macOS and Linux (build, tests, PDFium render of the fixture). The window was checked by hand on Windows only; macOS and Linux still need a manual look.
 
-## M1 — Viewer (2–3 weeks) — current
+## M1 — Viewer (2–3 weeks) — implemented, not hand-checked
 
 * Continuous scroll, zoom (fit width, fit page, %), tiles at high zoom.
 * Thumbnail rail, outline (bookmarks), page number field.
@@ -24,7 +24,7 @@ Each milestone ends with something you can run and show. Estimates are evenings 
 
 **Status (2026-10-21):** every item is implemented on `dev`, CI green on the three systems. Checked by screenshots on Windows: continuous view, zoom modes, tiles at 800 %, thumbnails, outline, page field, search on a 500-page file (`cargo xtask gen-large`, 11 hits for "page 25", as expected), password prompt, start screen with recent files, light and dark themes. Not yet checked by hand: scrolling smoothness, mouse and keyboard interaction (selection, Ctrl+wheel, typing in fields, drag and drop, the file dialog), and macOS/Linux. Known limits: text fields take no IME input yet; French UI only through `RECTO_LANG`/`LANG`.
 
-## M2 — Organize (2–3 weeks)
+## M2 — Organize (2–3 weeks) — current
 
 * Op log, undo/redo, atomic save / save as.
 * Rotate, delete, reorder (drag in the rail), extract, insert blank page.
