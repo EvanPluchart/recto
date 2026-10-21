@@ -36,7 +36,7 @@ pub enum Op {
 }
 
 /// A page of the current document: which original page it is, and the rotation added to it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct PageState {
     pub id: PageId,
     /// Clockwise degrees added to the page's own `/Rotate`: 0, 90, 180 or 270.

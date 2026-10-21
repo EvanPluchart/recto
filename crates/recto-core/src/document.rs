@@ -38,6 +38,7 @@ pub enum Source {
     Blank { size: Size },
 }
 
+#[derive(Clone)]
 pub struct Document {
     path: Option<PathBuf>,
     /// Source 0 is the opened file.
@@ -212,6 +213,18 @@ impl Document {
 
     pub fn mark_saved(&mut self) {
         self.saved_at = Some(self.cursor);
+    }
+
+    /// Position in the log; with `mark_saved_at`, records a save made from an earlier snapshot.
+    pub fn cursor(&self) -> usize {
+        self.cursor
+    }
+
+    /// Records that the state at `cursor` was saved (it may be behind the current one).
+    pub fn mark_saved_at(&mut self, cursor: usize) {
+        if cursor <= self.ops.len() {
+            self.saved_at = Some(cursor);
+        }
     }
 }
 
