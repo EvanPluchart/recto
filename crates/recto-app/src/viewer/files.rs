@@ -29,6 +29,7 @@ impl Viewer {
 
     /// Replaces the current document with the one at `path`, showing page `page` (1-based).
     pub(super) fn replace_document(&mut self, path: PathBuf, page: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.time("open");
         // Dropping the previous document stops its render thread before the next one starts.
         self.state = State::Empty;
         self.selection = None;

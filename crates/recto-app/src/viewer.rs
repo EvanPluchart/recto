@@ -256,6 +256,8 @@ pub struct Viewer {
     notice: Option<SharedString>,
     /// Latest background build; older ones are discarded when they finish.
     build_version: u64,
+    /// With `RECTO_TIMING` set: what is being timed (opening, an edit) and since when.
+    timing: Option<(&'static str, std::time::Instant)>,
 }
 
 impl Viewer {
@@ -301,6 +303,7 @@ impl Viewer {
             rail: RailSelection::default(),
             notice: None,
             build_version: 0,
+            timing: None,
         };
         // Focus first: a password prompt takes it over.
         window.focus(&viewer.focus);
@@ -322,6 +325,13 @@ impl Viewer {
             this.update(cx, |viewer, cx| viewer.may_close(window, cx)).unwrap_or(true)
         });
         viewer
+    }
+
+    /// Starts timing `what` when `RECTO_TIMING` is set; reported when the next page bitmap arrives.
+    pub(super) fn time(&mut self, what: &'static str) {
+        if std::env::var_os("RECTO_TIMING").is_some() {
+            self.timing = Some((what, std::time::Instant::now()));
+        }
     }
 
     /// Whether the window may close now; with unsaved changes, asks and closes it later if the
@@ -433,6 +443,11 @@ impl Viewer {
                 open.in_flight.remove(&(request.index, scale_key(request.scale)));
                 match result {
                     Ok(bitmap) => {
+                        // An edit is reported when its rebuild ends; bitmaps of the old bytes do not count.
+                        if let Some((what, since)) = self.timing.filter(|(what, _)| *what != "edit") {
+                            self.timing = None;
+                            eprintln!("recto: {what}: first page bitmap after {} ms", since.elapsed().as_millis());
+                        }
                         // A bitmap from a zoom level we have left only fills a page that has nothing yet.
                         let current = scale_key(request.scale) == scale_key(open.page_scale(request.index));
                         if (current || !open.pages.contains_key(&request.index))
@@ -1079,4 +1094,55 @@ fn failure(what: &'static str, error: impl std::fmt::Display) -> SharedString {
 fn to_render_image(bitmap: Bitmap) -> Option<Arc<RenderImage>> {
     let buffer = image::RgbaImage::from_raw(bitmap.width, bitmap.height, bitmap.pixels)?;
     Some(Arc::new(RenderImage::new(vec![image::Frame::new(buffer)])))
+}
+
+#[cfg(test)]
+mod tests {
+    use recto_core::annot::{Annotation, Color, Kind};
+    use recto_core::geom::Rect;
+    use recto_core::op::Op;
+
+    use super::*;
+
+    fn fixture(name: &str) -> Document {
+        Document::open(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures").join(name)).unwrap()
+    }
+
+    fn marks(document: &Document) -> Vec<Vec<u64>> {
+        Known::of(document).marks
+    }
+
+    fn rectangle(x: f32) -> Annotation {
+        let rect = Rect { origin: Point { x, y: 100.0 }, width: 50.0, height: 50.0 };
+        Annotation { kind: Kind::Rectangle { rect }, color: Color::RED, width: 1.0 }
+    }
+
+    /// A page keeps its bitmap across a rebuild only if its marks are unchanged: an annotation
+    /// must change its page's marks, and only that page's.
+    #[test]
+    fn marks_change_only_for_the_annotated_page() {
+        let mut document = fixture("sample.pdf");
+        let before = marks(&document);
+        let second = document.pages()[1].id;
+        document.apply(Op::AddAnnotation { page: second, annotation: rectangle(100.0) });
+        let one = marks(&document);
+        assert_eq!((one[0].clone(), one[2].clone()), (before[0].clone(), before[2].clone()));
+        assert_ne!(one[1], before[1]);
+
+        // Undo, then another annotation: as many ops as before, yet a different page.
+        document.undo();
+        assert_eq!(marks(&document), before);
+        document.apply(Op::AddAnnotation { page: second, annotation: rectangle(200.0) });
+        let two = marks(&document);
+        assert_ne!(two[1], one[1]);
+        assert_ne!(two[1], before[1]);
+    }
+
+    #[test]
+    fn filling_a_field_changes_its_page_marks() {
+        let mut document = fixture("forms.pdf");
+        let before = marks(&document);
+        document.apply(Op::FillField { name: "agree".into(), value: "Yes".into() });
+        assert_ne!(marks(&document)[0], before[0]);
+    }
 }

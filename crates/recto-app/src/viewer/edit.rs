@@ -288,6 +288,10 @@ impl Viewer {
 
     /// Builds the current state in the background; only the latest build is shown.
     pub(super) fn rebuild(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.open().is_none() {
+            return;
+        }
+        self.time("edit");
         let State::Open(open) = &self.state else { return };
         self.build_version += 1;
         let version = self.build_version;
@@ -313,7 +317,12 @@ impl Viewer {
             return; // a later edit supersedes this build
         }
         match built {
-            Ok((bytes, known)) => self.reload(bytes.into(), known, window, cx),
+            Ok((bytes, known)) => {
+                if let Some((_, since)) = self.timing.take() {
+                    eprintln!("recto: edit: rebuilt in {} ms", since.elapsed().as_millis());
+                }
+                self.reload(bytes.into(), known, window, cx)
+            }
             Err(error) => {
                 // Keep the log consistent with what is shown: the failed edit is undone.
                 if let State::Open(open) = &mut self.state {
@@ -361,6 +370,7 @@ impl Viewer {
                 .filter_map(|(index, (page, marks))| old_index.get(&(*page, marks.as_slice())).map(|&old| (old, index)))
                 .collect()
         };
+        self.time("edit, from reload");
         match self.start(document, bytes, shown, Some(known), window, cx) {
             Ok(mut open) => {
                 for (old, index) in carried {
