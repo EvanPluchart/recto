@@ -1,8 +1,11 @@
 //! Document model for Recto: original bytes plus an operation log.
 //! No UI and no rendering here. See docs/ARCHITECTURE.md.
 
+pub mod document;
 pub mod geom;
 pub mod op;
+
+pub use document::{Document, OpenError};
 
 /// Stable page identity: survives reordering, so selections and caches stay valid.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
