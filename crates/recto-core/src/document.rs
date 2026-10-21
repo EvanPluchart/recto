@@ -44,6 +44,10 @@ pub struct Document {
     /// Source 0 is the opened file.
     sources: Vec<Source>,
     ops: Vec<Op>,
+    /// A unique id per op, never reused: tells two states apart even when undo and a new edit
+    /// leave the same number of ops.
+    op_ids: Vec<u64>,
+    next_op_id: u64,
     /// Number of ops in effect; the ones after it can be redone.
     cursor: usize,
     /// Cursor at the last save (or at opening).
@@ -71,7 +75,16 @@ impl Document {
             return Err(OpenError::Empty);
         }
         let source = Source::File { bytes: bytes.into(), password: None, page_count };
-        Ok(Self { path: None, sources: vec![source], ops: Vec::new(), cursor: 0, saved_at: Some(0), needs_password })
+        Ok(Self {
+            path: None,
+            sources: vec![source],
+            ops: Vec::new(),
+            op_ids: Vec::new(),
+            next_op_id: 0,
+            cursor: 0,
+            saved_at: Some(0),
+            needs_password,
+        })
     }
 
     pub fn path(&self) -> Option<&Path> {
@@ -170,10 +183,13 @@ impl Document {
     /// Records an edit. Anything that could be redone is dropped.
     pub fn apply(&mut self, op: Op) {
         self.ops.truncate(self.cursor);
+        self.op_ids.truncate(self.cursor);
         if self.saved_at.is_some_and(|saved| saved > self.cursor) {
             self.saved_at = None;
         }
         self.ops.push(op);
+        self.op_ids.push(self.next_op_id);
+        self.next_op_id += 1;
         self.cursor += 1;
     }
 
@@ -204,6 +220,11 @@ impl Document {
     /// Ops in effect.
     pub fn ops(&self) -> &[Op] {
         &self.ops[..self.cursor]
+    }
+
+    /// Ids of the ops in effect, in the same order.
+    pub fn op_ids(&self) -> &[u64] {
+        &self.op_ids[..self.cursor]
     }
 
     /// Whether there are changes since opening or the last save.

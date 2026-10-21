@@ -385,3 +385,42 @@ pub fn attach(document: &mut lopdf::Document, page: ObjectId, annotation: Object
     }
     Ok(())
 }
+
+/// Helvetica advance widths (thousandths of the font size) for ASCII 32..=126, from its AFM.
+const HELVETICA: [u16; 95] = [
+    278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278, 556, 556, 556, 556, 556, 556, 556,
+    556, 556, 556, 278, 278, 584, 584, 584, 556, 1015, 667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833,
+    722, 778, 667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611, 278, 278, 278, 469, 556, 333, 556, 556, 500, 556,
+    556, 278, 556, 556, 222, 222, 500, 222, 833, 556, 556, 556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500, 334,
+    260, 334, 584,
+];
+
+/// Width of the widest line of `text` set in `font` at `size` points.
+pub fn text_width(text: &str, size: f32, font: Font) -> f32 {
+    let line_width = |line: &str| -> f32 {
+        line.chars()
+            .map(|c| HELVETICA.get((c as usize).wrapping_sub(32)).copied().unwrap_or(600) as f32)
+            .sum::<f32>()
+            / 1000.0
+            * size
+    };
+    // Times Italic runs narrower than Helvetica.
+    let factor = match font {
+        Font::Helvetica => 1.0,
+        Font::TimesItalic => 0.88,
+    };
+    text.lines().map(line_width).fold(0.0, f32::max) * factor
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn measures_helvetica() {
+        // "Hi" = 722 + 222 thousandths.
+        assert!((text_width("Hi", 10.0, Font::Helvetica) - 9.44).abs() < 0.001);
+        assert!((text_width("a\nlonger", 10.0, Font::Helvetica) - text_width("longer", 10.0, Font::Helvetica)).abs() < 0.001);
+        assert!(text_width("WIDE", 10.0, Font::Helvetica) > text_width("wide", 10.0, Font::Helvetica));
+    }
+}
