@@ -1,6 +1,7 @@
 //! Edit operations. Every user action becomes one `Op`; undo/redo moves a cursor in the log.
 
 use crate::PageId;
+use crate::annot::Annotation;
 use crate::geom::Rect;
 
 /// Clockwise rotation in quarter turns.
@@ -31,6 +32,8 @@ pub enum Op {
     /// Inserts `pages` (from a merged file or a blank page source) at position `at`.
     /// Pages already in the document are skipped.
     InsertPages { pages: Vec<PageId>, at: usize },
+    /// A new annotation on `page`, in the page's user space.
+    AddAnnotation { page: PageId, annotation: Annotation },
     /// Redaction removes content under `area`; it never only paints over it. (M4)
     Redact { page: PageId, area: Rect },
 }
@@ -70,7 +73,7 @@ pub fn replay(initial: &[PageId], ops: &[Op]) -> Vec<PageState> {
                 let at = (*at).min(pages.len());
                 pages.splice(at..at, fresh);
             }
-            Op::Redact { .. } => {}
+            Op::AddAnnotation { .. } | Op::Redact { .. } => {}
         }
     }
     pages

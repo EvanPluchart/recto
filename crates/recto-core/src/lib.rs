@@ -1,6 +1,7 @@
 //! Document model for Recto: original bytes plus an operation log.
 //! No UI and no rendering here. See docs/ARCHITECTURE.md.
 
+pub mod annot;
 pub mod build;
 pub mod document;
 pub mod geom;

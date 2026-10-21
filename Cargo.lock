@@ -4548,6 +4548,7 @@ name = "recto-core"
 version = "0.0.0"
 dependencies = [
  "lopdf",
+ "pdf-writer",
  "thiserror 2.0.21",
 ]
 

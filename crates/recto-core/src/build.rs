@@ -12,6 +12,7 @@ use std::collections::{BTreeSet, HashMap};
 use lopdf::{Dictionary, Object, ObjectId};
 
 use crate::PageId;
+use crate::annot;
 use crate::geom::{PageGeometry, Point, Rect};
 use crate::document::{Document, Source};
 use crate::op::{Op, PageState};
@@ -105,6 +106,17 @@ impl Document {
         node.set("Kids", Object::Array(kids));
         base.objects.insert(tree, Object::Dictionary(node));
         base.catalog_mut()?.set("Pages", Object::Reference(tree));
+
+        // Annotations added to pages that are part of this output.
+        for (serial, op) in self.ops().iter().enumerate() {
+            let Op::AddAnnotation { page, annotation } = op else { continue };
+            if !pages.iter().any(|state| state.id == *page) {
+                continue;
+            }
+            let Some(&id) = objects.get(page) else { continue };
+            let written = annotation.write(&mut base, id, serial);
+            annot::attach(&mut base, id, written)?;
+        }
         base.prune_objects();
 
         if let Some(state) = encryption {
@@ -366,6 +378,65 @@ mod tests {
         let page = blank.add_blank(crate::geom::Size { width: 100.0, height: 50.0 });
         blank.apply(Op::InsertPages { pages: vec![page], at: 0 });
         assert_eq!(sizes(&blank)[0], (100.0, 50.0, 0));
+    }
+
+    #[test]
+    fn annotations_round_trip() {
+        use crate::annot::{Annotation, Color, Font, Kind, Raster};
+        use crate::geom::Point;
+        let rect = |x, y, width, height| Rect { origin: Point { x, y }, width, height };
+        let kinds = vec![
+            Kind::Text { rect: rect(300.0, 100.0, 200.0, 50.0), text: "Héllo".into(), size: 20.0, font: Font::Helvetica, upright: 0 },
+            Kind::Image {
+                rect: rect(50.0, 50.0, 40.0, 40.0),
+                image: std::sync::Arc::new(Raster { width: 1, height: 1, rgb: vec![255, 0, 0], alpha: Some(vec![255]) }),
+                upright: 0,
+            },
+            Kind::Rectangle { rect: rect(100.0, 100.0, 200.0, 100.0) },
+            Kind::Ellipse { rect: rect(100.0, 250.0, 100.0, 60.0) },
+            Kind::Line { from: Point { x: 300.0, y: 300.0 }, to: Point { x: 400.0, y: 350.0 }, arrow: true },
+            Kind::Ink { strokes: vec![vec![Point { x: 450.0, y: 300.0 }, Point { x: 500.0, y: 320.0 }]] },
+            Kind::Highlight { quads: vec![rect(56.0, 660.0, 200.0, 24.0)] },
+            Kind::Underline { quads: vec![rect(56.0, 630.0, 200.0, 12.0)] },
+            Kind::StrikeOut { quads: vec![rect(56.0, 600.0, 200.0, 12.0)] },
+        ];
+        let mut document = open("sample.pdf");
+        for kind in kinds.clone() {
+            document.apply(Op::AddAnnotation { page: id(0), annotation: Annotation { kind, color: Color::RED, width: 2.0 } });
+        }
+        // On a page that is then deleted: not written.
+        document.apply(Op::AddAnnotation {
+            page: id(2),
+            annotation: Annotation { kind: kinds[2].clone(), color: Color::BLUE, width: 1.0 },
+        });
+        document.apply(Op::DeletePages { pages: vec![id(2)] });
+        document.apply(Op::MovePages { pages: vec![id(0)], to: 1 });
+
+        let bytes = document.build().unwrap();
+        let reopened = lopdf::Document::load_mem(&bytes).unwrap();
+        let pages: Vec<ObjectId> = reopened.get_pages().into_values().collect();
+        assert_eq!(pages.len(), 2);
+        let annots = |page: ObjectId| -> Vec<Dictionary> {
+            match reopened.get_dictionary(page).unwrap().get(b"Annots") {
+                Ok(Object::Array(items)) => {
+                    items.iter().map(|item| reopened.get_dictionary(item.as_reference().unwrap()).unwrap().clone()).collect()
+                }
+                _ => Vec::new(),
+            }
+        };
+        assert!(annots(pages[0]).is_empty(), "the moved page keeps its annotations");
+        let written = annots(pages[1]);
+        let subtypes: Vec<String> =
+            written.iter().map(|a| String::from_utf8(a.get(b"Subtype").unwrap().as_name().unwrap().to_vec()).unwrap()).collect();
+        assert_eq!(subtypes, ["FreeText", "Stamp", "Square", "Circle", "Line", "Ink", "Highlight", "Underline", "StrikeOut"]);
+        for (annotation, kind) in written.iter().zip(&kinds) {
+            assert!(annotation.get(b"AP").is_ok(), "every annotation carries its appearance");
+            let expected = Annotation { kind: kind.clone(), color: Color::RED, width: 2.0 }.rect();
+            let rect: Vec<f32> = annotation.get(b"Rect").unwrap().as_array().unwrap().iter().map(|v| v.as_float().unwrap()).collect();
+            assert_eq!(rect, vec![expected.origin.x, expected.origin.y, expected.origin.x + expected.width, expected.origin.y + expected.height]);
+        }
+        assert_eq!(written[6].get(b"QuadPoints").unwrap().as_array().unwrap().len(), 8);
+        assert_eq!(written[5].get(b"InkList").unwrap().as_array().unwrap().len(), 1);
     }
 
     #[test]

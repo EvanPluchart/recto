@@ -7,4 +7,5 @@ authors.workspace = true
 
 [dependencies]
 lopdf = { workspace = true }
+pdf-writer.workspace = true
 thiserror.workspace = true
