@@ -56,7 +56,7 @@ pub fn sample_pdf() -> Vec<u8> {
         let mut content = Content::new();
         if n == 0 {
             content.set_fill_rgb(0.15, 0.35, 0.75).rect(56.0, 700.0, 483.0, 60.0).fill_nonzero();
-            content.save_state().transform([200.0, 0.0, 0.0, 200.0, 56.0, 440.0]).x_object(image).restore_state();
+            content.save_state().transform([200.0, 0.0, 0.0, 200.0, 56.0, 380.0]).x_object(image).restore_state();
         }
         content.set_fill_rgb(0.0, 0.0, 0.0).begin_text().set_font(font, 24.0).next_line(56.0, 660.0);
         content.show(Str(format!("Recto sample, page {}", n + 1).as_bytes()));
