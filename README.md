@@ -4,7 +4,7 @@ A fast, offline PDF viewer and editor for Windows, macOS and Linux, written in R
 
 Recto aims at the everyday PDF jobs that usually send people to an online service: merge, split, reorder, rotate, annotate, sign, fill forms, compress, watermark, protect, redact. Files never leave your machine, and there is no daily task limit.
 
-> **Status:** milestone M1 (viewer) on `dev`: continuous scroll, zoom, thumbnails, outline, search, text selection, recent files, password-protected files. No editing yet. See [docs/ROADMAP.md](docs/ROADMAP.md).
+> **Status:** milestones M1–M3 on `dev`, not yet checked by hand: viewing (continuous scroll, zoom, thumbnails, outline, search, selection), organizing (rotate, delete, reorder, merge, split, extract, undo/redo, atomic save) and annotating (shapes, text, highlights, freehand, images, signatures, form filling and flattening). See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Planned features
 

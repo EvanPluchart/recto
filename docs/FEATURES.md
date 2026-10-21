@@ -16,8 +16,8 @@ Legend: milestone where it lands, or `later` / `no`.
 | Annotate | Text, images, shapes, freehand | M3 | lopdf + pdf-writer |
 | Annotate | Highlight, underline, strikeout | M3 | lopdf |
 | Annotate | Sign (drawn, typed, image) | M3 | lopdf + pdf-writer |
-| Forms | Fill AcroForm fields | M3 | PDFium |
-| Forms | Flatten | M3 | PDFium |
+| Forms | Fill AcroForm fields | M3 | lopdf (decision 0003) |
+| Forms | Flatten | M3 | lopdf (decision 0003) |
 | Forms | Create form fields | later | lopdf |
 | Tools | Compress | M4 | lopdf + image |
 | Tools | Grayscale | M4 | lopdf |

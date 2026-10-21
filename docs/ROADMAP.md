@@ -35,12 +35,14 @@ Each milestone ends with something you can run and show. Estimates are evenings 
 
 **Status (2026-10-22):** every op round-trips in `recto-core` tests (lopdf) and in `recto-render/tests/edits.rs` (PDFium): rotate, delete, move, merge, blank page, subsets for extract/split, inherited page attributes, encrypted originals (re-encrypted with the same password). Screenshots on Windows through `--apply` and `--save-as`. Not hand-checked: rail clicks and drags, file dialogs, the confirmation prompts. Known limits: merging a password-protected file is refused; outline entries pointing at deleted pages keep those pages' objects in the file. The 0.1 release is not cut: it waits for a hand check.
 
-## M3 — Annotate (3–4 weeks) — current
+## M3 — Annotate (3–4 weeks) — implemented, not hand-checked
 
 * Add text, image, rectangle, ellipse, line, arrow, freehand, highlight, underline, strikeout.
 * Drawn and typed signatures, stored for reuse.
 * Form filling (AcroForm), flatten on save as an option (in recto-core, see decision 0003).
 * Annotations are real PDF annotations, editable in other readers.
+
+**Status (2026-10-22):** every annotation kind round-trips (`recto-core` tests read back `/Subtype`, `/Rect`, `/QuadPoints`, `/InkList` and the appearance) and PDFium draws each one where it was placed (`recto-render/tests/annotations.rs` checks pixels, including upright text on a `/Rotate 90` page). Form fields are read, filled, and flattened, checked the same two ways on `tests/fixtures/forms.pdf`. Screenshots on Windows through `--apply` (shapes, arrow, freehand, text, highlight, filled form). Not hand-checked: drawing with the mouse, the text editor, image and signature placement, the signature pad, clicking form fields. Known limits: annotations cannot be moved or deleted after creation except by undo; text annotations and typed signatures use base-14 fonts (Latin-1 only); generated field appearances are plain (no comb or multi-line wrapping); form JavaScript is not run.
 
 ## M4 — Tools (3–4 weeks)
 

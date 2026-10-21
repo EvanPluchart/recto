@@ -16,10 +16,10 @@ tests/fixtures/  small PDFs used by integration tests
 ### recto-core: the document model
 
 * `Document` holds the **original bytes** plus an ordered **operation log** (`Vec<Op>`). The original file is never modified in memory.
-* `Op` is an enum of edits: `RotatePages`, `DeletePages`, `MovePages`, `InsertPages { from: SourceDoc }`, `AddAnnotation`, `FillField`, `Redact`, … Each op is serialisable, so an edit session can be saved and replayed.
+* `Op` is an enum of edits: `RotatePages`, `DeletePages`, `MovePages`, `InsertPages` (pages of a merged file or a blank page, each a `Source` of the document), `AddAnnotation` (`annot::Annotation`, user space), `FillField`, `Redact` (M4). Each op is plain data, so an edit session can be saved and replayed (serialisation is not written yet).
 * **Undo/redo** moves a cursor in the op log. No snapshots.
 * **Page identity**: pages are addressed by a stable `PageId` (source document + original index), never by their current position. Reordering then never invalidates selections, thumbnails or caches.
-* **Materialisation**: `Document::build() -> Vec<u8>` replays the op log on a `lopdf::Document` and writes a new PDF. The renderer is fed the materialised bytes (cached, rebuilt in the background after each op).
+* **Materialisation**: `Document::build() -> Vec<u8>` replays the op log on a `lopdf::Document` and writes a new PDF (`build.rs`): one new page tree, inherited page attributes copied down, merged files renumbered in, annotations written with explicit appearance streams (`annot.rs`), form values with generated appearances and optional flattening (`form.rs`, decision 0003), encrypted originals re-encrypted with their password. `Document::geometry()` gives each page's visible area and display rotation (`geom::PageGeometry`), which the app uses to turn pointer positions into user space. The renderer is fed the materialised bytes, rebuilt in the background after each op.
 * **Saving** is atomic: write to a temp file in the same folder, fsync, rename over the target.
 * Features that need new PDF content (watermarks, page numbers, stamped text) generate content streams with `pdf-writer` and merge them through `lopdf`.
 
@@ -43,7 +43,7 @@ pub trait Renderer {                                                 // built on
 
 ### recto-app: the interface
 
-* **M1 state**: one `Viewer` entity per window shows one document (`viewer.rs`, with `sidebar`, `search`, `selection`, `files`, `password` submodules). Page layout math lives in `recto-core::layout`, text search in `recto-core::text`. The structure below is the target once editing starts.
+* **Current state (M3)**: one `Viewer` entity per window shows one document (`viewer.rs`). Submodules: `sidebar` and `rail` (thumbnails, outline, multi-select, drag to reorder), `search`, `selection`, `files` (open, recent, drop), `password`, `edit` (ops, background rebuilds, undo/redo, `--apply`), `output` (save, save as, extract, split), `dialog`, `annotate` (tools), `signature`, `forms`. After each edit the document is rebuilt on the background executor; the newest build replaces the render thread, keeping the bitmaps of pages whose state and ops did not change, and lays out at once from `recto-core` geometry. The `Workspace`/`DocumentTab` structure below remains the target for tabs.
 * One `Workspace` entity per window, holding one or more `DocumentTab`s.
 * A `DocumentTab` owns a `recto_core::Document` and a handle to the render thread. Views:
   * `PageCanvas`: the virtualised, continuously scrolling page list. Only visible pages (plus a margin) are requested.
@@ -82,7 +82,7 @@ PageCanvas ──> RenderRequest (visible pages, scale) ────────
 * Code, comments and commit messages in English.
 * No `unwrap()` on anything that touches a user file. Errors surface in the UI as a toast with the cause.
 * Irreversible actions (overwrite original, redact) ask first. Redaction removes the content, never only covers it.
-* Test flags on the binary, for screenshots and agents: `recto [file.pdf] [--page=N] [--zoom=PCT] [--sidebar=thumbnails|outline] [--find=TEXT] [--tool=NAME] [--dark|--light]` (`--tool` arrives with M3). Without `--zoom` the page fits the window width.
+* Test flags on the binary, for screenshots and agents: `recto [file.pdf] [--page=N] [--zoom=PCT] [--sidebar=thumbnails|outline] [--tool=NAME] [--find=TEXT] [--apply=EDITS] [--save-as=PATH] [--dark|--light]`. Without `--zoom` the page fits the window width. `--apply` takes comma-separated edits: `rotate:N`, `delete:N`, `move:N>M`, `blank:N`, `undo`, `fill:NAME=VALUE`, and annotations in displayed page points (`rectangle:P:X:Y:W:H`, `ellipse:…`, `highlight:…`, `arrow:P:X1:Y1:X2:Y2`, `line:…`, `freehand:P:X:Y:X:Y…`, `text:P:X:Y:TEXT`). `--save-as` writes the result at start.
 
 ## Platform notes
 
