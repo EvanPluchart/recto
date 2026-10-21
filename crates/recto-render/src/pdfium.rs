@@ -4,10 +4,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use pdfium_render::prelude::{
-    PdfBitmapFormat, PdfColor, PdfDocument, PdfPageIndex, PdfRenderConfig, Pdfium, PdfiumError,
+    PdfBitmapFormat, PdfBookmark, PdfColor, PdfDocument, PdfPageIndex, PdfRenderConfig, Pdfium, PdfiumError,
 };
 
-use crate::{Bitmap, DocInfo, RenderRequest, Renderer, Size};
+use crate::{Bitmap, DocInfo, OutlineEntry, RenderRequest, Renderer, Size};
 
 /// Largest bitmap side, in pixels. Bigger requests must be split into tiles.
 const MAX_SIDE: f32 = 16_384.0;
@@ -51,8 +51,10 @@ impl Renderer for PdfiumRenderer {
             .into_iter()
             .map(|rect| Size { width: rect.width().value, height: rect.height().value })
             .collect();
+        let mut outline = Vec::new();
+        walk_outline(document.bookmarks().root(), 0, &mut outline);
         self.document = Some(document);
-        Ok(DocInfo { page_sizes })
+        Ok(DocInfo { page_sizes, outline })
     }
 
     fn render(&mut self, request: &RenderRequest) -> Result<Bitmap, RenderError> {
@@ -119,4 +121,31 @@ fn library_dirs() -> Vec<PathBuf> {
         dirs.push(PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../target/pdfium")));
     }
     dirs
+}
+
+/// Outline size limits: malformed files can nest deeply or loop through siblings.
+const MAX_OUTLINE_ENTRIES: usize = 20_000;
+const MAX_OUTLINE_DEPTH: usize = 32;
+
+/// Appends `first` and its following siblings, each followed by its children, in reading order.
+fn walk_outline(first: Option<PdfBookmark<'_>>, depth: usize, out: &mut Vec<OutlineEntry>) {
+    let mut next = first;
+    while let Some(bookmark) = next {
+        if out.len() >= MAX_OUTLINE_ENTRIES || depth > MAX_OUTLINE_DEPTH {
+            return;
+        }
+        out.push(OutlineEntry { title: bookmark.title().unwrap_or_default(), depth, page: bookmark_page(&bookmark) });
+        walk_outline(bookmark.first_child(), depth + 1, out);
+        next = bookmark.next_sibling();
+    }
+}
+
+/// Page targeted by a bookmark: its `/Dest`, or the destination of its `GoTo` action.
+fn bookmark_page(bookmark: &PdfBookmark<'_>) -> Option<usize> {
+    if let Some(destination) = bookmark.destination() {
+        return destination.page_index().ok().map(|i| i as usize);
+    }
+    let action = bookmark.action()?;
+    let local = action.as_local_destination_action()?;
+    local.destination().ok()?.page_index().ok().map(|i| i as usize)
 }

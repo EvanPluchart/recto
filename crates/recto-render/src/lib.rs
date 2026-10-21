@@ -22,6 +22,14 @@ pub struct RenderRequest {
     pub scale: f32,
     /// Requests older than the latest generation are dropped before rendering.
     pub generation: u64,
+    /// What the bitmap is for. Ignored by the renderer, echoed back with the result.
+    pub purpose: Purpose,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Purpose {
+    Page,
+    Thumbnail,
 }
 
 /// Premultiplied BGRA (the layout PDFium and GPUI both use), row-major, `width * 4` bytes per row.
@@ -50,6 +58,17 @@ pub trait Renderer {
 pub struct DocInfo {
     /// Displayed size of every page, in points, in document order.
     pub page_sizes: Vec<Size>,
+    /// Bookmarks, flattened in reading order.
+    pub outline: Vec<OutlineEntry>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct OutlineEntry {
+    pub title: String,
+    /// 0 for top-level entries.
+    pub depth: usize,
+    /// Target page, if the entry points inside the document.
+    pub page: Option<usize>,
 }
 
 impl DocInfo {

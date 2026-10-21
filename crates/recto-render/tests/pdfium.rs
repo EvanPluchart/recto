@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use recto_core::PageId;
-use recto_render::{DocInfo, PdfiumRenderer, RenderRequest, RenderThread, Response, Size};
+use recto_render::{DocInfo, OutlineEntry, PdfiumRenderer, Purpose, RenderRequest, RenderThread, Response, Size};
 
 fn fixture(name: &str) -> Arc<[u8]> {
     let path = format!("{}/../../tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
@@ -29,9 +29,11 @@ fn renders_the_fixtures() {
 
     let info = open(&thread, "sample.pdf");
     assert_eq!(info.page_sizes, vec![size(595.0, 842.0); 3]);
+    assert!(info.outline.is_empty());
 
     let generation = thread.next_generation();
-    let request = RenderRequest { page: PageId { source: 0, index: 0 }, index: 0, scale: 1.0, generation };
+    let request =
+        RenderRequest { page: PageId { source: 0, index: 0 }, index: 0, scale: 1.0, generation, purpose: Purpose::Page };
     thread.request(request);
     let bitmap = match thread.responses().recv().unwrap() {
         Response::Rendered { request: answered, result } => {
@@ -64,10 +66,15 @@ fn renders_the_fixtures() {
     // Displayed sizes: landscape media box, `/Rotate 90` swaps the sides, US Letter.
     let info = open(&thread, "layout.pdf");
     assert_eq!(info.page_sizes, vec![size(595.0, 842.0), size(842.0, 595.0), size(842.0, 595.0), size(612.0, 792.0)]);
+    let entry = |title: &str, depth, page| OutlineEntry { title: title.into(), depth, page: Some(page) };
+    assert_eq!(
+        info.outline,
+        vec![entry("Portrait", 0, 0), entry("Landscape", 1, 1), entry("Rotated", 0, 2), entry("Letter", 0, 3)]
+    );
 
     // The rotated page renders with the displayed size, at a non-integer scale.
     let generation = thread.next_generation();
-    thread.request(RenderRequest { page: PageId { source: 0, index: 2 }, index: 2, scale: 1.5, generation });
+    thread.request(RenderRequest { page: PageId { source: 0, index: 2 }, index: 2, scale: 1.5, generation, ..request });
     match thread.responses().recv().unwrap() {
         Response::Rendered { result, .. } => {
             let bitmap = result.unwrap();

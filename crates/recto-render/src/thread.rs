@@ -109,6 +109,7 @@ fn serve<R: Renderer>(mut renderer: R, commands: Receiver<Command>, responses: S
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Purpose;
     use recto_core::PageId;
 
     #[derive(Debug, thiserror::Error)]
@@ -127,7 +128,7 @@ mod tests {
             if let Some(gate) = self.gate.take() {
                 let _ = gate.recv();
             }
-            Ok(DocInfo { page_sizes: vec![crate::Size { width: 10.0, height: 20.0 }; 3] })
+            Ok(DocInfo { page_sizes: vec![crate::Size { width: 10.0, height: 20.0 }; 3], outline: Vec::new() })
         }
 
         fn render(&mut self, request: &RenderRequest) -> Result<Bitmap, MockError> {
@@ -137,7 +138,7 @@ mod tests {
     }
 
     fn request(index: usize, generation: u64) -> RenderRequest {
-        RenderRequest { page: PageId { source: 0, index: index as u32 }, index, scale: 1.0, generation }
+        RenderRequest { page: PageId { source: 0, index: index as u32 }, index, scale: 1.0, generation, purpose: Purpose::Page }
     }
 
     #[test]

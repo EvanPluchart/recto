@@ -12,7 +12,7 @@ use gpui::{
 use recto_core::geom::{Point, Size};
 use recto_core::layout::{self, PageLayout};
 use recto_core::{Document, PageId};
-use recto_render::{Bitmap, DocInfo, PdfiumRenderer, RenderRequest, RenderThread, Response};
+use recto_render::{Bitmap, DocInfo, PdfiumRenderer, Purpose, RenderRequest, RenderThread, Response};
 
 use crate::Args;
 use crate::i18n::t;
@@ -324,6 +324,7 @@ impl Viewer {
                     index,
                     scale: render_scale,
                     generation: open.generation,
+                    purpose: Purpose::Page,
                 });
             }
         }
