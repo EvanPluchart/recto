@@ -50,7 +50,8 @@ pub fn layout_pdf() -> Vec<u8> {
 /// Three pages whose resources, media box and rotation are inherited from the page tree:
 /// the root `Pages` holds the font and an A4 media box; a nested `Pages` overrides the media box
 /// (US Letter) and adds `/Rotate 90` for pages 1 and 2; page 3 sits under the root and has its
-/// own landscape media box. Editing must copy these attributes onto the pages it re-parents.
+/// own landscape media box and a crop box. Editing must copy these attributes onto the pages it
+/// re-parents.
 pub fn inherited_pdf() -> Vec<u8> {
     let catalog_id = Ref::new(1);
     let root_id = Ref::new(2);
@@ -79,6 +80,8 @@ pub fn inherited_pdf() -> Vec<u8> {
         page.parent(parent).contents(content_id);
         if n == 2 {
             page.media_box(A4_LANDSCAPE);
+            // A crop box, partly outside the media box: what shows is their intersection.
+            page.crop_box(Rect::new(50.0, 40.0, 900.0, 545.0));
         }
         page.finish();
         let mut content = Content::new();

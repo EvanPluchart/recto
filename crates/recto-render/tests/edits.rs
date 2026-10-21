@@ -61,10 +61,11 @@ fn rebuilt_documents_open_in_pdfium() {
     // Inherited attributes: the nested node's Letter box and /Rotate 90 follow the page.
     let mut inherited = Document::open(fixture("inherited.pdf")).unwrap();
     let before = open(&thread, inherited.build().unwrap(), None);
-    assert_eq!(before.page_sizes, vec![size(792.0, 612.0), size(792.0, 612.0), size(842.0, 595.0)]);
+    // Page 3 shows its crop box clipped to its media box: [50 40 842 545].
+    assert_eq!(before.page_sizes, vec![size(792.0, 612.0), size(792.0, 612.0), size(792.0, 505.0)]);
     inherited.apply(Op::MovePages { pages: vec![page(2)], to: 0 });
     let after = open(&thread, inherited.build().unwrap(), None);
-    assert_eq!(after.page_sizes, vec![size(842.0, 595.0), size(792.0, 612.0), size(792.0, 612.0)]);
+    assert_eq!(after.page_sizes, vec![size(792.0, 505.0), size(792.0, 612.0), size(792.0, 612.0)]);
     assert!(page_text(&thread, 0).contains("Inherited 3"));
 
     // An encrypted original stays encrypted with the same password.
@@ -78,4 +79,25 @@ fn rebuilt_documents_open_in_pdfium() {
         other => panic!("unexpected {other:?}"),
     }
     assert_eq!(open(&thread, bytes, Some("recto")).page_sizes, vec![size(842.0, 595.0)]);
+
+    // recto-core's page geometry agrees with PDFium, which the app relies on to place edits.
+    for name in ["sample.pdf", "layout.pdf", "inherited.pdf"] {
+        let document = Document::open(fixture(name)).unwrap();
+        let info = open(&thread, document.build().unwrap(), None);
+        let sizes: Vec<Size> = document.geometry().unwrap().iter().map(|page| page.size()).collect();
+        assert_eq!(sizes, info.page_sizes, "{name}");
+    }
+    // Text drawn at (56, 762) in user space on layout.pdf's `/Rotate 90` page: same place for both.
+    let layout = Document::open(fixture("layout.pdf")).unwrap();
+    open(&thread, layout.build().unwrap(), None);
+    thread.text(2);
+    let text = match thread.responses().recv().unwrap() {
+        Response::Text { result, .. } => result.unwrap(),
+        other => panic!("unexpected {other:?}"),
+    };
+    let origin = layout.geometry().unwrap()[2].to_display(recto_core::geom::Point { x: 56.0, y: 762.0 });
+    let first = text.boxes[0];
+    // The glyph box straddles the baseline (descent on one side, ascent on the other).
+    assert!((first.y - origin.y).abs() < 2.0, "{first:?} vs {origin:?}");
+    assert!(first.x < origin.x && first.right() > origin.x, "{first:?} vs {origin:?}");
 }

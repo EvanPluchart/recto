@@ -12,6 +12,7 @@ use std::collections::{BTreeSet, HashMap};
 use lopdf::{Dictionary, Object, ObjectId};
 
 use crate::PageId;
+use crate::geom::{PageGeometry, Point, Rect};
 use crate::document::{Document, Source};
 use crate::op::{Op, PageState};
 
@@ -129,27 +130,102 @@ fn load(source: &Source) -> Result<lopdf::Document, lopdf::Error> {
 fn flatten_inherited(document: &mut lopdf::Document) {
     let pages: Vec<ObjectId> = document.get_pages().into_values().collect();
     for page in pages {
-        let Ok(dictionary) = document.get_dictionary(page) else { continue };
-        let mut missing: Vec<&[u8]> = INHERITED.into_iter().filter(|key| !dictionary.has(key)).collect();
-        let mut parent = dictionary.get(b"Parent").and_then(Object::as_reference).ok();
-        let mut found = Vec::new();
-        for _ in 0..MAX_TREE_DEPTH {
-            let (Some(id), false) = (parent, missing.is_empty()) else { break };
-            let Ok(node) = document.get_dictionary(id) else { break };
-            missing.retain(|key| match node.get(key) {
-                Ok(value) => {
-                    found.push((key.to_vec(), value.clone()));
-                    false
-                }
-                Err(_) => true,
-            });
-            parent = node.get(b"Parent").and_then(Object::as_reference).ok();
-        }
+        let found: Vec<(&[u8], Object)> = INHERITED
+            .into_iter()
+            .filter_map(|key| attribute(document, page, key).map(|value| (key, value.clone())))
+            .collect();
         if let Ok(dictionary) = document.get_dictionary_mut(page) {
             for (key, value) in found {
-                dictionary.set(key, value);
+                if !dictionary.has(key) {
+                    dictionary.set(key, value);
+                }
             }
         }
+    }
+}
+
+/// A page attribute, from the page itself or the nearest ancestor that sets it.
+fn attribute<'a>(document: &'a lopdf::Document, page: ObjectId, key: &[u8]) -> Option<&'a Object> {
+    let mut node = document.get_dictionary(page).ok()?;
+    for _ in 0..MAX_TREE_DEPTH {
+        if let Ok(value) = node.get(key) {
+            return Some(value);
+        }
+        let parent = node.get(b"Parent").and_then(Object::as_reference).ok()?;
+        node = document.get_dictionary(parent).ok()?;
+    }
+    None
+}
+
+/// A rectangle array (`[x0 y0 x1 y1]`, corners in any order), references resolved.
+fn rectangle(document: &lopdf::Document, value: &Object) -> Option<Rect> {
+    let resolved = |value: &Object| -> Option<f32> {
+        let value = match value {
+            Object::Reference(id) => document.get_object(*id).ok()?,
+            other => other,
+        };
+        value.as_float().ok()
+    };
+    let array = match value {
+        Object::Reference(id) => document.get_object(*id).ok()?.as_array().ok()?,
+        other => other.as_array().ok()?,
+    };
+    let [x0, y0, x1, y1] = [resolved(array.first()?)?, resolved(array.get(1)?)?, resolved(array.get(2)?)?, resolved(array.get(3)?)?];
+    let origin = Point { x: x0.min(x1), y: y0.min(y1) };
+    Some(Rect { origin, width: (x1 - x0).abs(), height: (y1 - y0).abs() })
+}
+
+fn intersect(a: Rect, b: Rect) -> Option<Rect> {
+    let (x0, y0) = (a.origin.x.max(b.origin.x), a.origin.y.max(b.origin.y));
+    let x1 = (a.origin.x + a.width).min(b.origin.x + b.width);
+    let y1 = (a.origin.y + a.height).min(b.origin.y + b.height);
+    (x1 > x0 && y1 > y0).then_some(Rect { origin: Point { x: x0, y: y0 }, width: x1 - x0, height: y1 - y0 })
+}
+
+/// US Letter, the default media box when a page has none.
+const DEFAULT_MEDIA_BOX: Rect = Rect { origin: Point { x: 0.0, y: 0.0 }, width: 612.0, height: 792.0 };
+
+impl Document {
+    /// How each current page is shown, read from the sources with `lopdf`.
+    pub fn geometry(&self) -> Result<Vec<PageGeometry>, BuildError> {
+        self.geometry_of(&self.pages())
+    }
+
+    /// How each of `pages` is shown.
+    pub fn geometry_of(&self, pages: &[PageState]) -> Result<Vec<PageGeometry>, BuildError> {
+        let mut loaded: HashMap<u32, (lopdf::Document, Vec<ObjectId>)> = HashMap::new();
+        let mut geometry = Vec::with_capacity(pages.len());
+        for page in pages {
+            let source = &self.sources()[page.id.source as usize];
+            let (area, own) = match source {
+                Source::Blank { size } => {
+                    (Rect { origin: Point { x: 0.0, y: 0.0 }, width: size.width, height: size.height }, 0)
+                }
+                Source::File { .. } => {
+                    let (document, ids) = match loaded.entry(page.id.source) {
+                        std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                        std::collections::hash_map::Entry::Vacant(entry) => {
+                            let document = load(source)?;
+                            let ids = document.get_pages().into_values().collect();
+                            entry.insert((document, ids))
+                        }
+                    };
+                    let (document, ids) = (&*document, &*ids);
+                    let id = *ids.get(page.id.index as usize).ok_or(BuildError::MissingPage(page.id))?;
+                    let media = attribute(document, id, b"MediaBox")
+                        .and_then(|value| rectangle(document, value))
+                        .unwrap_or(DEFAULT_MEDIA_BOX);
+                    let crop = attribute(document, id, b"CropBox").and_then(|value| rectangle(document, value));
+                    let area = crop.and_then(|crop| intersect(crop, media)).unwrap_or(media);
+                    let rotate = attribute(document, id, b"Rotate").and_then(|value| value.as_i64().ok()).unwrap_or(0);
+                    (area, rotate)
+                }
+            };
+            // Rotations that are not quarter turns are invalid; round them like readers do.
+            let quarter = ((own + i64::from(page.rotation)).rem_euclid(360) + 45) / 90 % 4;
+            geometry.push(PageGeometry { area, rotate: (quarter * 90) as u16 });
+        }
+        Ok(geometry)
     }
 }
 
@@ -271,6 +347,25 @@ mod tests {
         assert_eq!(pages.len(), 1);
         assert_eq!(pages[0].1, 90);
         assert!(pages[0].0.starts_with("Page 1"));
+    }
+
+    #[test]
+    fn geometry_follows_boxes_rotation_and_edits() {
+        let sizes = |document: &Document| -> Vec<(f32, f32, u16)> {
+            document.geometry().unwrap().iter().map(|page| (page.size().width, page.size().height, page.rotate)).collect()
+        };
+        let mut layout = open("layout.pdf");
+        assert_eq!(sizes(&layout), vec![(595.0, 842.0, 0), (842.0, 595.0, 0), (842.0, 595.0, 90), (612.0, 792.0, 0)]);
+        layout.apply(Op::RotatePages { pages: vec![id(2)], rotation: Rotation::R270 });
+        assert_eq!(sizes(&layout)[2], (595.0, 842.0, 0));
+        let inherited = open("inherited.pdf");
+        assert_eq!(sizes(&inherited), vec![(792.0, 612.0, 90), (792.0, 612.0, 90), (792.0, 505.0, 0)]);
+        let crop = inherited.geometry().unwrap()[2].area;
+        assert_eq!((crop.origin.x, crop.origin.y), (50.0, 40.0));
+        let mut blank = open("sample.pdf");
+        let page = blank.add_blank(crate::geom::Size { width: 100.0, height: 50.0 });
+        blank.apply(Op::InsertPages { pages: vec![page], at: 0 });
+        assert_eq!(sizes(&blank)[0], (100.0, 50.0, 0));
     }
 
     #[test]
