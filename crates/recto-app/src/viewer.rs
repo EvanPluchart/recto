@@ -9,10 +9,10 @@ use gpui::{
     ExternalPaths, MouseButton, ScrollHandle, ScrollWheelEvent, SharedString, Styled, Window, WindowAppearance, actions, div, img, point,
     prelude::*, px,
 };
-use recto_core::geom::{Point, Size};
+use recto_core::geom::{PageRect, Point, Size};
 use recto_core::layout::{self, PageLayout};
 use recto_core::{Document, PageId};
-use recto_render::{Bitmap, DocInfo, PageText, PdfiumRenderer, Purpose, RenderRequest, RenderThread, Response};
+use recto_render::{Bitmap, DocInfo, PageText, PdfiumRenderer, Purpose, RenderRequest, RenderThread, Response, Tile};
 
 mod files;
 mod password;
@@ -49,10 +49,16 @@ const KEEP_PAGES: usize = 6;
 const MAX_TEXTS: usize = 200;
 const KEEP_TEXTS: usize = 20;
 const MIN_ZOOM: f32 = 0.1;
-/// Until tiles land, a whole page must fit in one bitmap.
-const MAX_ZOOM: f32 = 8.0;
-const ZOOM_STEPS: [f32; 19] =
-    [0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0];
+/// Content coordinates are f32: 1600 % keeps a 500-page document well within their precision.
+const MAX_ZOOM: f32 = 16.0;
+const ZOOM_STEPS: [f32; 21] =
+    [0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 12.0, 16.0];
+/// Pages whose longest side exceeds this many device pixels are drawn as tiles over a
+/// lower-resolution backdrop of at most `BACKDROP` pixels.
+const TILED_ABOVE: f32 = 4096.0;
+const BACKDROP: f32 = 2048.0;
+/// Tile side, in device pixels.
+const TILE: u32 = 512;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ZoomMode {
@@ -85,8 +91,62 @@ struct Open {
     /// Page texts, for search and selection.
     texts: HashMap<usize, PageText>,
     texts_in_flight: HashSet<usize>,
+    tiles: HashMap<TileKey, Arc<RenderImage>>,
+    tiles_in_flight: HashSet<TileKey>,
     /// Page to scroll to once the first layout exists (from `--page`).
     pending_page: Option<usize>,
+}
+
+/// A tile of a page at one render scale; `x` and `y` are its corner in device pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct TileKey {
+    page: usize,
+    scale: u32,
+    x: u32,
+    y: u32,
+}
+
+impl Open {
+    /// Size of page `index` in device pixels at the current render scale.
+    fn page_pixels(&self, index: usize) -> (f32, f32) {
+        let size = self.info.as_ref().and_then(|info| info.page_sizes.get(index).copied());
+        size.map_or((0.0, 0.0), |size| (size.width * self.render_scale, size.height * self.render_scale))
+    }
+
+    /// Scale of the whole-page bitmap of page `index`: the render scale, or a backdrop scale for
+    /// pages drawn as tiles.
+    fn page_scale(&self, index: usize) -> f32 {
+        let (width, height) = self.page_pixels(index);
+        let longest = width.max(height);
+        if longest > TILED_ABOVE { self.render_scale * BACKDROP / longest } else { self.render_scale }
+    }
+
+    /// Tiles of page `index` that intersect `screen` (content coordinates, logical pixels);
+    /// none if the page is small enough for one bitmap.
+    fn visible_tiles(&self, layout: &PageLayout, index: usize, screen: PageRect, scale_factor: f32) -> Vec<Tile> {
+        let (width, height) = self.page_pixels(index);
+        let Some(page) = layout.boxes.get(index) else { return Vec::new() };
+        if width.max(height) <= TILED_ABOVE {
+            return Vec::new();
+        }
+        // The visible part of the page, in device pixels from its top-left corner.
+        let left = ((screen.x - page.x) * scale_factor).max(0.0);
+        let top = ((screen.y - page.y) * scale_factor).max(0.0);
+        let right = ((screen.right() - page.x) * scale_factor).min(width);
+        let bottom = ((screen.bottom() - page.y) * scale_factor).min(height);
+        if left >= right || top >= bottom {
+            return Vec::new();
+        }
+        let (page_width, page_height) = (width.ceil() as u32, height.ceil() as u32);
+        let mut tiles = Vec::new();
+        for row in (top as u32 / TILE)..=((bottom as u32).saturating_sub(1) / TILE) {
+            for column in (left as u32 / TILE)..=((right as u32).saturating_sub(1) / TILE) {
+                let (x, y) = (column * TILE, row * TILE);
+                tiles.push(Tile { x, y, width: TILE.min(page_width - x), height: TILE.min(page_height - y) });
+            }
+        }
+        tiles
+    }
 }
 
 enum State {
@@ -188,6 +248,8 @@ impl Viewer {
             thumbnails_in_flight: HashSet::new(),
             texts: HashMap::new(),
             texts_in_flight: HashSet::new(),
+            tiles: HashMap::new(),
+            tiles_in_flight: HashSet::new(),
             pending_page: Some(page.saturating_sub(1)),
         })
     }
@@ -211,12 +273,24 @@ impl Viewer {
                     open.thumbnails_in_flight.remove(&request.index);
                 }
             },
+            Response::Rendered { request, result } if let Some(tile) = request.tile => {
+                let key = TileKey { page: request.index, scale: scale_key(request.scale), x: tile.x, y: tile.y };
+                open.tiles_in_flight.remove(&key);
+                // Tiles of a zoom level we have left are useless: the backdrop covers the page.
+                if key.scale == scale_key(open.render_scale)
+                    && let Ok(bitmap) = result
+                    && let Some(image) = to_render_image(bitmap)
+                    && let Some(old) = open.tiles.insert(key, image)
+                {
+                    cx.drop_image(old, Some(window));
+                }
+            }
             Response::Rendered { request, result } => {
                 open.in_flight.remove(&(request.index, scale_key(request.scale)));
                 match result {
                     Ok(bitmap) => {
                         // A bitmap from a zoom level we have left only fills a page that has nothing yet.
-                        let current = scale_key(request.scale) == scale_key(open.render_scale);
+                        let current = scale_key(request.scale) == scale_key(open.page_scale(request.index));
                         if (current || !open.pages.contains_key(&request.index))
                             && let Some(image) = to_render_image(bitmap)
                             && let Some(old) = open.pages.insert(request.index, Cached { image, scale: request.scale })
@@ -309,7 +383,7 @@ impl Viewer {
         let viewport = self.viewport(window);
         let Some(layout) = self.open().and_then(|open| open.layout.as_ref()) else { return };
         let position = layout.scroll_to_page(index.min(layout.boxes.len().saturating_sub(1)), viewport);
-        self.set_scroll_position(Point { x: self.scroll_position().x, y: position.y });
+        self.set_scroll_position(position);
         cx.notify();
     }
 
@@ -382,6 +456,7 @@ impl Viewer {
             open.in_flight.clear();
             // Queued thumbnails were dropped with the old generation too.
             open.thumbnails_in_flight.clear();
+            open.tiles_in_flight.clear();
         }
 
         // Visible pages first, then the ones around them, nearest first.
@@ -391,16 +466,44 @@ impl Viewer {
         let mut nearby: Vec<usize> = wanted.filter(|i| !visible.contains(i)).collect();
         nearby.sort_by_key(|&i| distance(i));
         for index in visible.clone().chain(nearby) {
-            let key = (index, scale_key(render_scale));
+            let scale = open.page_scale(index);
+            let key = (index, scale_key(scale));
             let ready = open.pages.get(&index).is_some_and(|c| scale_key(c.scale) == key.1);
             if !ready && open.in_flight.insert(key) {
                 open.renderer.request(RenderRequest {
                     page: PageId { source: 0, index: index as u32 },
                     index,
-                    scale: render_scale,
+                    scale,
                     generation: open.generation,
                     purpose: Purpose::Page,
+                    tile: None,
                 });
+            }
+        }
+
+        // Pages too large for one bitmap: sharp tiles over the part on screen.
+        let screen = PageRect { x: position.x, y: top, width: viewport.width, height: viewport.height };
+        let mut on_screen = HashSet::new();
+        for index in visible.clone() {
+            for tile in open.visible_tiles(layout, index, screen, scale_factor) {
+                let key = TileKey { page: index, scale: scale_key(render_scale), x: tile.x, y: tile.y };
+                on_screen.insert(key);
+                if !open.tiles.contains_key(&key) && open.tiles_in_flight.insert(key) {
+                    open.renderer.request(RenderRequest {
+                        page: PageId { source: 0, index: index as u32 },
+                        index,
+                        scale: render_scale,
+                        generation: open.generation,
+                        purpose: Purpose::Page,
+                        tile: Some(tile),
+                    });
+                }
+            }
+        }
+        let gone: Vec<TileKey> = open.tiles.keys().copied().filter(|key| !on_screen.contains(key)).collect();
+        for key in gone {
+            if let Some(image) = open.tiles.remove(&key) {
+                cx.drop_image(image, Some(window));
             }
         }
 
@@ -548,6 +651,20 @@ impl Viewer {
                     .child(t("Cannot render the page")),
                 None => frame,
             });
+            // Sharp tiles over the backdrop of a large page.
+            let current = scale_key(open.render_scale);
+            let scale_factor = window.scale_factor();
+            let tiles = open.tiles.iter().filter(|(key, _)| key.page == index && key.scale == current).map(|(key, image)| {
+                let size = image.size(0);
+                div()
+                    .absolute()
+                    .left(px(page.x + key.x as f32 / scale_factor))
+                    .top(px(page.y + key.y as f32 / scale_factor))
+                    .w(px(size.width.0 as f32 / scale_factor))
+                    .h(px(size.height.0 as f32 / scale_factor))
+                    .child(img(image.clone()).size_full())
+            });
+            content = content.children(tiles);
             // Search hits, drawn over the bitmap.
             let zoom = layout.zoom;
             let marks = self.highlights(open, index).into_iter().map(|(rect, current)| {

@@ -99,9 +99,16 @@ impl PageLayout {
     /// Scroll offset that puts the top of page `index` just below the top of the viewport
     /// (after the gap, so the previous page does not peek in).
     pub fn scroll_to_page(&self, index: usize, viewport: Size) -> Point {
+        let Some(page) = self.boxes.get(index) else { return Point { x: 0.0, y: 0.0 } };
         let margin = if index == 0 { PADDING } else { GAP };
-        let y = self.boxes.get(index).map_or(0.0, |page| page.y - margin);
-        Point { x: 0.0, y: y.clamp(0.0, self.max_scroll(viewport).y) }
+        // Horizontally: centre the page if it fits, else show its left edge.
+        let x = if page.width + 2.0 * PADDING <= viewport.width {
+            page.x + page.width / 2.0 - viewport.width / 2.0
+        } else {
+            page.x - PADDING
+        };
+        let max = self.max_scroll(viewport);
+        Point { x: x.clamp(0.0, max.x), y: (page.y - margin).clamp(0.0, max.y) }
     }
 }
 
@@ -195,6 +202,12 @@ mod tests {
         assert_eq!(layout.scroll_to_page(2, viewport).y, PADDING + 2.0 * 842.0 + GAP);
         let tall = Size { width: 800.0, height: 2000.0 };
         assert_eq!(layout.scroll_to_page(2, tall).y, layout.max_scroll(tall).y);
+
+        // A narrow page in content widened by a wide one: its left edge comes into view.
+        let mixed = PageLayout::new(&[A4, LANDSCAPE], 4.0, viewport.width);
+        let x = mixed.scroll_to_page(0, viewport).x;
+        assert_eq!(x, mixed.boxes[0].x - PADDING);
+        assert_eq!(mixed.scroll_to_page(1, viewport).x, 0.0);
     }
 
     #[test]

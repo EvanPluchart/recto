@@ -187,6 +187,7 @@ impl Viewer {
                 scale: width / sizes[index].width * scale,
                 generation: open.generation,
                 purpose: Purpose::Thumbnail,
+                tile: None,
             });
         }
 
