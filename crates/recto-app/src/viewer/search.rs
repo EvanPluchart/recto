@@ -141,6 +141,8 @@ impl Viewer {
         open.texts.insert(index, result.unwrap_or_default());
         if self.search.open {
             self.advance_search(window, cx);
+        } else {
+            cx.notify();
         }
     }
 

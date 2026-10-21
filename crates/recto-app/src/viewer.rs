@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use gpui::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, IntoElement, KeyBinding, ParentElement, Render, RenderImage,
-    ScrollHandle, ScrollWheelEvent, SharedString, Styled, Window, WindowAppearance, actions, div, img, point,
+    MouseButton, ScrollHandle, ScrollWheelEvent, SharedString, Styled, Window, WindowAppearance, actions, div, img, point,
     prelude::*, px,
 };
 use recto_core::geom::{Point, Size};
@@ -15,10 +15,12 @@ use recto_core::{Document, PageId};
 use recto_render::{Bitmap, DocInfo, PageText, PdfiumRenderer, Purpose, RenderRequest, RenderThread, Response};
 
 mod search;
+mod selection;
 mod sidebar;
 
 pub use self::sidebar::Tab;
 use self::search::Search;
+use self::selection::Selection;
 use self::sidebar::Sidebar;
 use crate::Args;
 use crate::i18n::t;
@@ -29,7 +31,7 @@ actions!(
     viewer,
     [
         ZoomIn, ZoomOut, ActualSize, FitWidth, FitPage, GoToPage, LineDown, LineUp, ScreenDown, ScreenUp, FirstPage,
-        LastPage, ToggleThumbnails, ToggleOutline, Find, FindNext, FindPrevious
+        LastPage, ToggleThumbnails, ToggleOutline, Find, FindNext, FindPrevious, CopySelection
     ]
 );
 
@@ -40,6 +42,9 @@ const LINE: f32 = 48.0;
 const PRERENDER: f32 = 1.0;
 /// Bitmaps kept around the visible pages before being released.
 const KEEP_PAGES: usize = 6;
+/// Page texts kept when no search is open: beyond `MAX_TEXTS`, only those near the viewport stay.
+const MAX_TEXTS: usize = 200;
+const KEEP_TEXTS: usize = 20;
 const MIN_ZOOM: f32 = 0.1;
 /// Until tiles land, a whole page must fit in one bitmap.
 const MAX_ZOOM: f32 = 8.0;
@@ -96,6 +101,7 @@ pub struct Viewer {
     page_input: Entity<TextInput>,
     sidebar: Sidebar,
     search: Search,
+    selection: Option<Selection>,
 }
 
 impl Viewer {
@@ -125,6 +131,7 @@ impl Viewer {
             page_input,
             sidebar: Sidebar::new(args.sidebar),
             search,
+            selection: None,
         };
         if let Some(path) = &args.file {
             viewer.state = match viewer.start(path, args.page, window, cx) {
@@ -388,6 +395,13 @@ impl Viewer {
             }
         }
 
+        // Text of the visible pages, so a selection can start anywhere at once.
+        for index in visible.clone() {
+            if !open.texts.contains_key(&index) && open.texts_in_flight.insert(index) {
+                open.renderer.text(index);
+            }
+        }
+
         // Release bitmaps far from the viewport, from the GPU atlas too.
         let keep = visible.start.saturating_sub(KEEP_PAGES)..visible.end + KEEP_PAGES;
         let far: Vec<usize> = open.pages.keys().copied().filter(|i| !keep.contains(i)).collect();
@@ -395,6 +409,13 @@ impl Viewer {
             if let Some(old) = open.pages.remove(&index) {
                 cx.drop_image(old.image, Some(window));
             }
+        }
+        // Texts are small, but a long document read end to end should not keep them all; a search
+        // needs every page, so nothing is released while one is open.
+        if !self.search.open && open.texts.len() > MAX_TEXTS {
+            let keep = visible.start.saturating_sub(KEEP_TEXTS)..visible.end + KEEP_TEXTS;
+            let selected = self.selection.map(|s| s.pages());
+            open.texts.retain(|i, _| keep.contains(i) || selected.as_ref().is_some_and(|pages| pages.contains(i)));
         }
     }
 
@@ -481,7 +502,10 @@ impl Viewer {
             .relative()
             .w(px(layout.content.width))
             .h(px(layout.content.height))
-            .on_scroll_wheel(cx.listener(Self::on_wheel));
+            .on_scroll_wheel(cx.listener(Self::on_wheel))
+            .on_mouse_down(MouseButton::Left, cx.listener(Self::on_select_start))
+            .on_mouse_move(cx.listener(Self::on_select_move))
+            .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, _| this.end_selection()));
         for index in visible {
             let page = layout.boxes[index];
             let frame = div()
@@ -491,7 +515,8 @@ impl Viewer {
                 .w(px(page.width))
                 .h(px(page.height))
                 .bg(theme.placeholder)
-                .shadow_md();
+                .shadow_md()
+                .cursor_text();
             // A bitmap from another zoom level is stretched until the right one arrives.
             content = content.child(match open.pages.get(&index) {
                 Some(cached) => frame.child(img(cached.image.clone()).size_full()),
@@ -516,6 +541,16 @@ impl Viewer {
                     .bg(if current { theme.hit_current } else { theme.hit })
             });
             content = content.children(marks);
+            let selected = self.selection_rects(open, index).into_iter().map(|rect| {
+                div()
+                    .absolute()
+                    .left(px(page.x + rect.x * zoom))
+                    .top(px(page.y + rect.y * zoom))
+                    .w(px(rect.width * zoom))
+                    .h(px(rect.height * zoom))
+                    .bg(theme.selection)
+            });
+            content = content.children(selected);
         }
         div()
             .id("pages")
@@ -551,6 +586,7 @@ impl Render for Viewer {
             .on_action(cx.listener(|this, _: &Find, window, cx| this.open_search(window, cx)))
             .on_action(cx.listener(|this, _: &FindNext, window, cx| this.step_hit(true, window, cx)))
             .on_action(cx.listener(|this, _: &FindPrevious, window, cx| this.step_hit(false, window, cx)))
+            .on_action(cx.listener(|this, _: &CopySelection, _, cx| this.copy_selection(cx)))
             .on_action(cx.listener(|this, _: &ZoomIn, window, cx| this.step_zoom(true, window, cx)))
             .on_action(cx.listener(|this, _: &ZoomOut, window, cx| this.step_zoom(false, window, cx)))
             .on_action(cx.listener(|this, _: &ActualSize, window, cx| this.set_zoom(ZoomMode::Fixed(1.0), None, window, cx)))
@@ -597,6 +633,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-f", Find, Some("Viewer")),
         KeyBinding::new("f3", FindNext, Some("Viewer")),
         KeyBinding::new("shift-f3", FindPrevious, Some("Viewer")),
+        KeyBinding::new("secondary-c", CopySelection, PAGES),
         KeyBinding::new("down", LineDown, PAGES),
         KeyBinding::new("up", LineUp, PAGES),
         KeyBinding::new("pagedown", ScreenDown, PAGES),
