@@ -3,9 +3,11 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use pdfium_render::prelude::{PdfColor, PdfDocument, PdfPageIndex, PdfRenderConfig, Pdfium, PdfiumError};
+use pdfium_render::prelude::{
+    PdfBitmapFormat, PdfColor, PdfDocument, PdfPageIndex, PdfRenderConfig, Pdfium, PdfiumError,
+};
 
-use crate::{Bitmap, RenderRequest, Renderer};
+use crate::{Bitmap, DocInfo, RenderRequest, Renderer, Size};
 
 /// Largest bitmap side, in pixels. Bigger requests must be split into tiles.
 const MAX_SIDE: f32 = 16_384.0;
@@ -39,12 +41,18 @@ impl PdfiumRenderer {
 impl Renderer for PdfiumRenderer {
     type Error = RenderError;
 
-    fn open(&mut self, bytes: Arc<[u8]>, password: Option<&str>) -> Result<usize, RenderError> {
+    fn open(&mut self, bytes: Arc<[u8]>, password: Option<&str>) -> Result<DocInfo, RenderError> {
         self.document = None;
         let document = self.pdfium.load_pdf_from_byte_vec(bytes.to_vec(), password)?;
-        let count = document.pages().len() as usize;
+        // Sizes come from the page tree without loading each page.
+        let page_sizes = document
+            .pages()
+            .page_sizes()?
+            .into_iter()
+            .map(|rect| Size { width: rect.width().value, height: rect.height().value })
+            .collect();
         self.document = Some(document);
-        Ok(count)
+        Ok(DocInfo { page_sizes })
     }
 
     fn render(&mut self, request: &RenderRequest) -> Result<Bitmap, RenderError> {
@@ -60,11 +68,20 @@ impl Renderer for PdfiumRenderer {
         }
         let config = PdfRenderConfig::new()
             .scale_page_by_factor(request.scale)
+            .set_format(PdfBitmapFormat::BGRA)
+            .set_reverse_byte_order(false) // pdfium-render defaults to RGBA output
             .set_clear_color(PdfColor::WHITE)
             .render_form_data(true);
         let bitmap = page.render_with_config(&config)?;
-        // Opaque white background: straight and premultiplied RGBA are the same here.
-        Ok(Bitmap { width: bitmap.width() as u32, height: bitmap.height() as u32, pixels: bitmap.as_rgba_bytes() })
+        let (width, height) = (bitmap.width() as usize, bitmap.height() as usize);
+        let mut pixels = bitmap.as_raw_bytes();
+        // PDFium may pad rows; `Bitmap` rows are tight.
+        let stride = pixels.len() / height.max(1);
+        if stride != width * 4 {
+            pixels = pixels.chunks_exact(stride).flat_map(|row| &row[..width * 4]).copied().collect();
+        }
+        // Opaque white background: straight and premultiplied alpha are the same here.
+        Ok(Bitmap { width: width as u32, height: height as u32, pixels })
     }
 }
 

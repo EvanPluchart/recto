@@ -9,6 +9,8 @@ mod thread;
 pub use pdfium::{PdfiumRenderer, RenderError};
 pub use thread::{RenderThread, Response};
 
+pub use recto_core::geom::Size;
+
 use recto_core::PageId;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -22,7 +24,7 @@ pub struct RenderRequest {
     pub generation: u64,
 }
 
-/// Premultiplied RGBA, row-major.
+/// Premultiplied BGRA (the layout PDFium and GPUI both use), row-major, `width * 4` bytes per row.
 pub struct Bitmap {
     pub width: u32,
     pub height: u32,
@@ -39,7 +41,19 @@ impl std::fmt::Debug for Bitmap {
 pub trait Renderer {
     type Error: std::error::Error + Send + Sync + 'static;
 
-    /// Loads a document, replacing the previous one. Returns its page count.
-    fn open(&mut self, bytes: std::sync::Arc<[u8]>, password: Option<&str>) -> Result<usize, Self::Error>;
+    /// Loads a document, replacing the previous one.
+    fn open(&mut self, bytes: std::sync::Arc<[u8]>, password: Option<&str>) -> Result<DocInfo, Self::Error>;
     fn render(&mut self, request: &RenderRequest) -> Result<Bitmap, Self::Error>;
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DocInfo {
+    /// Displayed size of every page, in points, in document order.
+    pub page_sizes: Vec<Size>,
+}
+
+impl DocInfo {
+    pub fn page_count(&self) -> usize {
+        self.page_sizes.len()
+    }
 }

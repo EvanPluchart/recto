@@ -1,21 +1,34 @@
-//! Renders the generated fixture through PDFium. Needs `cargo xtask fetch-pdfium` first.
+//! Renders the generated fixtures through PDFium. Needs `cargo xtask fetch-pdfium` first.
 //! Keep every PDFium check in this one test: the library has process-wide state.
 
 use std::sync::Arc;
 
 use recto_core::PageId;
-use recto_render::{PdfiumRenderer, RenderRequest, RenderThread, Response};
+use recto_render::{DocInfo, PdfiumRenderer, RenderRequest, RenderThread, Response, Size};
 
-#[test]
-fn renders_page_one_of_the_fixture() {
-    let bytes = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/fixtures/sample.pdf")).unwrap();
-    let thread = RenderThread::spawn(PdfiumRenderer::new).expect("PDFium loads; run `cargo xtask fetch-pdfium`");
+fn fixture(name: &str) -> Arc<[u8]> {
+    let path = format!("{}/../../tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
+    Arc::from(std::fs::read(path).unwrap())
+}
 
-    thread.open(Arc::from(bytes), None);
+fn open(thread: &RenderThread, name: &str) -> DocInfo {
+    thread.open(fixture(name), None);
     match thread.responses().recv().unwrap() {
-        Response::Opened(count) => assert_eq!(count.unwrap(), 3),
+        Response::Opened(info) => info.unwrap(),
         other => panic!("unexpected {other:?}"),
     }
+}
+
+fn size(width: f32, height: f32) -> Size {
+    Size { width, height }
+}
+
+#[test]
+fn renders_the_fixtures() {
+    let thread = RenderThread::spawn(PdfiumRenderer::new).expect("PDFium loads; run `cargo xtask fetch-pdfium`");
+
+    let info = open(&thread, "sample.pdf");
+    assert_eq!(info.page_sizes, vec![size(595.0, 842.0); 3]);
 
     let generation = thread.next_generation();
     let request = RenderRequest { page: PageId { source: 0, index: 0 }, index: 0, scale: 1.0, generation };
@@ -36,8 +49,8 @@ fn renders_page_one_of_the_fixture() {
         bitmap.pixels[i..i + 4].try_into().unwrap()
     };
     assert!(bitmap.pixels.as_chunks::<4>().0.iter().any(|p| p[..3] != [255, 255, 255]), "page 1 is blank");
-    // The blue band drawn at the top of page 1, in RGBA order.
-    let [r, g, b, a] = pixel(300, 110);
+    // The blue band drawn at the top of page 1, in BGRA order.
+    let [b, g, r, a] = pixel(300, 110);
     assert!(b > r + 100 && b > g + 50 && a == 255, "expected blue, got {:?}", [r, g, b, a]);
 
     // Past the last page: an error, not a panic.
@@ -45,6 +58,22 @@ fn renders_page_one_of_the_fixture() {
     thread.request(RenderRequest { index: 3, generation, ..request });
     match thread.responses().recv().unwrap() {
         Response::Rendered { result, .. } => assert!(result.is_err()),
+        other => panic!("unexpected {other:?}"),
+    }
+
+    // Displayed sizes: landscape media box, `/Rotate 90` swaps the sides, US Letter.
+    let info = open(&thread, "layout.pdf");
+    assert_eq!(info.page_sizes, vec![size(595.0, 842.0), size(842.0, 595.0), size(842.0, 595.0), size(612.0, 792.0)]);
+
+    // The rotated page renders with the displayed size, at a non-integer scale.
+    let generation = thread.next_generation();
+    thread.request(RenderRequest { page: PageId { source: 0, index: 2 }, index: 2, scale: 1.5, generation });
+    match thread.responses().recv().unwrap() {
+        Response::Rendered { result, .. } => {
+            let bitmap = result.unwrap();
+            assert_eq!((bitmap.width, bitmap.height), (1263, 893));
+            assert_eq!(bitmap.pixels.len(), 1263 * 893 * 4);
+        }
         other => panic!("unexpected {other:?}"),
     }
 }

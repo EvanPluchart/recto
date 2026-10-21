@@ -91,13 +91,9 @@ fn failure(what: &'static str, error: impl std::fmt::Display) -> SharedString {
     format!("{}: {error:#}", t(what)).into()
 }
 
-/// GPUI textures are BGRA.
+/// `Bitmap` is BGRA, the layout GPUI textures expect, so the buffer is handed over as is.
 fn to_render_image(bitmap: Bitmap) -> Option<Arc<RenderImage>> {
-    let mut pixels = bitmap.pixels;
-    for pixel in pixels.as_chunks_mut::<4>().0 {
-        pixel.swap(0, 2);
-    }
-    let buffer = image::RgbaImage::from_raw(bitmap.width, bitmap.height, pixels)?;
+    let buffer = image::RgbaImage::from_raw(bitmap.width, bitmap.height, bitmap.pixels)?;
     Some(Arc::new(RenderImage::new(vec![image::Frame::new(buffer)])))
 }
 

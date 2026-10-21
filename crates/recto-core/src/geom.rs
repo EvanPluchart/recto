@@ -13,3 +13,10 @@ pub struct Rect {
     pub width: f32,
     pub height: f32,
 }
+
+/// Page size in PDF points, with the page's `/Rotate` already applied (as displayed).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Size {
+    pub width: f32,
+    pub height: f32,
+}

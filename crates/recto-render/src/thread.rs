@@ -7,7 +7,7 @@ use std::thread::JoinHandle;
 use anyhow::{Context, Result, anyhow};
 use flume::{Receiver, Sender};
 
-use crate::{Bitmap, RenderRequest, Renderer};
+use crate::{Bitmap, DocInfo, RenderRequest, Renderer};
 
 enum Command {
     Open { bytes: Arc<[u8]>, password: Option<String> },
@@ -16,8 +16,8 @@ enum Command {
 
 #[derive(Debug)]
 pub enum Response {
-    /// Answer to `open`: the page count.
-    Opened(Result<usize>),
+    /// Answer to `open`.
+    Opened(Result<DocInfo>),
     Rendered { request: RenderRequest, result: Result<Bitmap> },
 }
 
@@ -123,11 +123,11 @@ mod tests {
     impl Renderer for Mock {
         type Error = MockError;
 
-        fn open(&mut self, _: Arc<[u8]>, _: Option<&str>) -> Result<usize, MockError> {
+        fn open(&mut self, _: Arc<[u8]>, _: Option<&str>) -> Result<DocInfo, MockError> {
             if let Some(gate) = self.gate.take() {
                 let _ = gate.recv();
             }
-            Ok(3)
+            Ok(DocInfo { page_sizes: vec![crate::Size { width: 10.0, height: 20.0 }; 3] })
         }
 
         fn render(&mut self, request: &RenderRequest) -> Result<Bitmap, MockError> {
@@ -160,7 +160,7 @@ mod tests {
         while opened < 2 {
             match thread.responses().recv().unwrap() {
                 Response::Opened(count) => {
-                    assert_eq!(count.unwrap(), 3);
+                    assert_eq!(count.unwrap().page_count(), 3);
                     opened += 1;
                 }
                 Response::Rendered { request, result } => {
