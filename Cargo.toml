@@ -11,6 +11,8 @@ repository = "https://github.com/EvanPluchart/recto"
 
 # GPUI and PDFium are pinned exactly; upgrade them only on purpose, in a dedicated commit.
 # The PDFium binary itself is pinned in xtask (PDFIUM_RELEASE) and must match the `pdfium_*` API feature below.
+# Cargo.lock holds libc at 0.2.189: 0.2.190 dropped `ENOATTR` on Linux, which breaks `xattr 0.2.3` (pulled by gpui).
+# Do not `cargo update` libc past it until gpui stops depending on xattr 0.2.
 [workspace.dependencies]
 recto-core = { path = "crates/recto-core" }
 recto-render = { path = "crates/recto-render" }

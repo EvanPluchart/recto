@@ -10,5 +10,5 @@ publish = false
 anyhow.workspace = true
 flate2 = "1.1.10"
 pdf-writer.workspace = true
-tar = "0.4.46"
+tar = { version = "0.4.46", default-features = false }
 ureq = "3.5.0"
