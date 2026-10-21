@@ -24,7 +24,7 @@ Each milestone ends with something you can run and show. Estimates are evenings 
 
 **Status (2026-10-21):** every item is implemented on `dev`, CI green on the three systems. Checked by screenshots on Windows: continuous view, zoom modes, tiles at 800 %, thumbnails, outline, page field, search on a 500-page file (`cargo xtask gen-large`, 11 hits for "page 25", as expected), password prompt, start screen with recent files, light and dark themes. Not yet checked by hand: scrolling smoothness, mouse and keyboard interaction (selection, Ctrl+wheel, typing in fields, drag and drop, the file dialog), and macOS/Linux. Known limits: text fields take no IME input yet; French UI only through `RECTO_LANG`/`LANG`.
 
-## M2 — Organize (2–3 weeks) — current
+## M2 — Organize (2–3 weeks) — implemented, not hand-checked
 
 * Op log, undo/redo, atomic save / save as.
 * Rotate, delete, reorder (drag in the rail), extract, insert blank page.
@@ -33,11 +33,13 @@ Each milestone ends with something you can run and show. Estimates are evenings 
 
 **Done when:** every op round-trips (save, reopen, same result) and has an integration test. **First public release (0.1).**
 
-## M3 — Annotate (3–4 weeks)
+**Status (2026-10-22):** every op round-trips in `recto-core` tests (lopdf) and in `recto-render/tests/edits.rs` (PDFium): rotate, delete, move, merge, blank page, subsets for extract/split, inherited page attributes, encrypted originals (re-encrypted with the same password). Screenshots on Windows through `--apply` and `--save-as`. Not hand-checked: rail clicks and drags, file dialogs, the confirmation prompts. Known limits: merging a password-protected file is refused; outline entries pointing at deleted pages keep those pages' objects in the file. The 0.1 release is not cut: it waits for a hand check.
+
+## M3 — Annotate (3–4 weeks) — current
 
 * Add text, image, rectangle, ellipse, line, arrow, freehand, highlight, underline, strikeout.
 * Drawn and typed signatures, stored for reuse.
-* Form filling (AcroForm) through PDFium, flatten on save as an option.
+* Form filling (AcroForm), flatten on save as an option (in recto-core, see decision 0003).
 * Annotations are real PDF annotations, editable in other readers.
 
 ## M4 — Tools (3–4 weeks)
