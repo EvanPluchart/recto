@@ -31,6 +31,8 @@ pub struct PageLayout {
     pub zoom: f32,
     pub boxes: Vec<PageBox>,
     pub content: Size,
+    /// Viewport width the layout was made for.
+    pub viewport_width: f32,
 }
 
 impl PageLayout {
@@ -49,7 +51,7 @@ impl PageLayout {
             })
             .collect::<Vec<_>>();
         let content_height = if boxes.is_empty() { 2.0 * PADDING } else { y - GAP + PADDING };
-        Self { zoom, boxes, content: Size { width: content_width, height: content_height } }
+        Self { zoom, boxes, content: Size { width: content_width, height: content_height }, viewport_width }
     }
 
     /// Pages that intersect the vertical band `[top, top + height)`.
@@ -94,9 +96,11 @@ impl PageLayout {
         Point { x: (moved.x - anchor.x).clamp(0.0, max.x), y: (moved.y - anchor.y).clamp(0.0, max.y) }
     }
 
-    /// Scroll offset that puts the top of page `index` at the top of the viewport.
+    /// Scroll offset that puts the top of page `index` just below the top of the viewport
+    /// (after the gap, so the previous page does not peek in).
     pub fn scroll_to_page(&self, index: usize, viewport: Size) -> Point {
-        let y = self.boxes.get(index).map_or(0.0, |page| page.y - PADDING);
+        let margin = if index == 0 { PADDING } else { GAP };
+        let y = self.boxes.get(index).map_or(0.0, |page| page.y - margin);
         Point { x: 0.0, y: y.clamp(0.0, self.max_scroll(viewport).y) }
     }
 }
@@ -187,8 +191,8 @@ mod tests {
         let viewport = Size { width: 800.0, height: 600.0 };
         let layout = PageLayout::new(&[A4; 3], 1.0, viewport.width);
         assert_eq!(layout.scroll_to_page(0, viewport), point(0.0, 0.0));
-        assert_eq!(layout.scroll_to_page(1, viewport).y, 842.0 + GAP);
-        assert_eq!(layout.scroll_to_page(2, viewport).y, 2.0 * (842.0 + GAP));
+        assert_eq!(layout.scroll_to_page(1, viewport).y, PADDING + 842.0);
+        assert_eq!(layout.scroll_to_page(2, viewport).y, PADDING + 2.0 * 842.0 + GAP);
         let tall = Size { width: 800.0, height: 2000.0 };
         assert_eq!(layout.scroll_to_page(2, tall).y, layout.max_scroll(tall).y);
     }
