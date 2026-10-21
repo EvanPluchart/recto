@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/recto-core", "crates/recto-render", "crates/recto-app"]
+members = ["crates/recto-core", "crates/recto-render", "crates/recto-app", "xtask"]
 
 [workspace.package]
 version = "0.0.0"
@@ -9,7 +9,16 @@ license = "MIT"
 authors = ["Evan Pluchart"]
 repository = "https://github.com/EvanPluchart/recto"
 
-# Pinned versions are added at M0 (see docs/PROMPT.md).
+# GPUI and PDFium are pinned exactly; upgrade them only on purpose, in a dedicated commit.
+# The PDFium binary itself is pinned in xtask (PDFIUM_RELEASE) and must match the `pdfium_*` API feature below.
 [workspace.dependencies]
 recto-core = { path = "crates/recto-core" }
 recto-render = { path = "crates/recto-render" }
+gpui = "=0.2.2"
+pdfium-render = { version = "=0.9.4", default-features = false, features = ["pdfium_7881", "thread_safe"] }
+lopdf = { version = "0.46.0", default-features = false }
+flume = "0.12.0"
+anyhow = "1.0.104"
+thiserror = "2.0.21"
+pdf-writer = "0.15.0"
+image = { version = "0.25.10", default-features = false }
