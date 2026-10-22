@@ -7,11 +7,11 @@ use gpui::{
     div, prelude::*, px,
 };
 
-use recto_core::Document;
+use recto_core::{Document, OpenError};
 
 use super::annotate::Tool;
 use super::password::Locked;
-use super::{State, Viewer, failure};
+use super::{Known, State, Viewer, failure};
 use crate::i18n::t;
 use crate::recent;
 
@@ -25,11 +25,53 @@ fn describe(path: &Path) -> (SharedString, SharedString) {
 impl Viewer {
     /// Opens `path` in place of the current document, after confirmation if it has unsaved changes.
     pub(super) fn open_path(&mut self, path: PathBuf, page: usize, window: &mut Window, cx: &mut Context<Self>) {
-        self.confirm_discard(window, cx, move |viewer, window, cx| viewer.replace_document(path, page, window, cx));
+        self.confirm_discard(window, cx, move |viewer, window, cx| viewer.load_document(path, page, window, cx));
     }
 
-    /// Replaces the current document with the one at `path`, showing page `page` (1-based).
+    /// Reads `path` in the background (parsing a large file takes a while), then shows it in place
+    /// of the current document. Only the latest file asked for is shown.
+    fn load_document(&mut self, path: PathBuf, page: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.loading += 1;
+        let serial = self.loading;
+        self.notice = Some(t("Opening…").into());
+        cx.notify();
+        let task = cx.background_executor().spawn({
+            let path = path.clone();
+            async move {
+                let document = Document::open(&path)?;
+                let known = (!document.needs_password()).then(|| Known::of(&document));
+                Ok((document, known))
+            }
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let opened = task.await;
+            this.update_in(cx, |viewer, window, cx| {
+                if viewer.loading == serial {
+                    viewer.show_document(path, page, opened, window, cx)
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Replaces the current document with the one at `path`, showing page `page` (1-based), read
+    /// right away (at launch, so the command line can act on it).
     pub(super) fn replace_document(&mut self, path: PathBuf, page: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let opened = Document::open(&path).map(|document| (document, None));
+        self.show_document(path, page, opened, window, cx);
+    }
+
+    /// Shows `opened` (the document at `path` and, when read in the background, what is known of
+    /// it) in place of the current document.
+    fn show_document(
+        &mut self,
+        path: PathBuf,
+        page: usize,
+        opened: Result<(Document, Option<Known>), OpenError>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.time("open");
         let switching = !matches!(self.state, State::Empty);
         // Dropping the previous document stops its render thread before the next one starts.
@@ -52,8 +94,8 @@ impl Viewer {
         self.search.restart();
         self.sidebar.forget_followed();
         self.set_scroll_position(recto_core::geom::Point { x: 0.0, y: 0.0 });
-        let document = match Document::open(&path) {
-            Ok(document) => document,
+        let (document, known) = match opened {
+            Ok(opened) => opened,
             Err(error) => {
                 self.state = State::Error(failure("Cannot open the document", error));
                 cx.notify();
@@ -67,7 +109,7 @@ impl Viewer {
             State::Locked(Box::new(Locked::new(document, page, self.theme, window, cx)))
         } else {
             let bytes = document.bytes();
-            match self.start(document, bytes, page.saturating_sub(1), None, window, cx) {
+            match self.start(document, bytes, page.saturating_sub(1), known, window, cx) {
                 Ok(open) => State::Open(Box::new(open)),
                 Err(message) => State::Error(message),
             }

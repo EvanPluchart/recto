@@ -153,7 +153,7 @@ pub(super) struct Known {
 
 impl Known {
     /// Read from `document` (as it is now) with lopdf.
-    fn of(document: &Document) -> Self {
+    pub(super) fn of(document: &Document) -> Self {
         let pages = document.pages();
         let (geometry, fields) = document.geometry_and_fields(&pages).unwrap_or_default();
         Known::with(document, pages, geometry, fields)
@@ -331,6 +331,8 @@ pub struct Viewer {
     replace_agreed: Option<std::path::PathBuf>,
     /// The annotation copied with Ctrl+C, to paste.
     copied: Option<recto_core::annot::Annotation>,
+    /// Files asked to open in the background so far; only the latest is shown.
+    loading: u64,
     ocr_engine: Option<Arc<recto_ocr::Engine>>,
 }
 
@@ -387,6 +389,7 @@ impl Viewer {
             ocr: None,
             replace_agreed: None,
             copied: None,
+            loading: 0,
             ocr_engine: None,
         };
         // Focus first: a password prompt takes it over.
