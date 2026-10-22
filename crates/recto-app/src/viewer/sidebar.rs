@@ -171,6 +171,7 @@ impl Viewer {
         cx: &mut Context<Self>,
     ) -> Vec<AnyElement> {
         let theme = self.theme;
+        let editing = self.editing;
         let current = self.current_page();
         let scale = window.scale_factor();
         let State::Open(open) = &mut self.state else { return Vec::new() };
@@ -207,16 +208,22 @@ impl Viewer {
                     .items_center()
                     .justify_center()
                     .gap(px(6.))
-                    .drag_over::<DraggedPages>(move |style, _, _, _| style.border_t_2().border_color(theme.highlight))
-                    .on_drop(cx.listener(move |viewer, dragged: &DraggedPages, window, cx| {
-                        viewer.move_pages(dragged.pages.clone(), index, window, cx);
-                    }))
-                    .drag_over::<ExternalPaths>(move |style, _, _, _| style.border_t_2().border_color(theme.highlight))
-                    .on_drop(cx.listener(move |viewer, paths: &ExternalPaths, window, cx| {
-                        // Merge here, rather than open the file in place of this one.
-                        cx.stop_propagation();
-                        viewer.insert_files(paths.paths(), index, window, cx);
-                    }));
+                    // Reordering and merging belong to edit mode.
+                    .when(editing, |row| {
+                        row.drag_over::<DraggedPages>(move |style, _, _, _| style.border_t_2().border_color(theme.highlight))
+                            .on_drop(cx.listener(move |viewer, dragged: &DraggedPages, window, cx| {
+                                viewer.move_pages(dragged.pages.clone(), index, window, cx);
+                            }))
+                            .drag_over::<ExternalPaths>(move |style, _, _, _| style.border_t_2().border_color(theme.highlight))
+                            .on_drop(cx.listener(move |viewer, paths: &ExternalPaths, window, cx| {
+                                // Merge here, rather than open the file in place of this one.
+                                cx.stop_propagation();
+                                viewer.insert_files(paths.paths(), index, window, cx);
+                            }))
+                    });
+                if index >= count && !editing {
+                    return row.into_any_element();
+                }
                 if index >= count {
                     return row.child(div().px(px(20.)).text_center().text_xs().text_color(theme.muted).child(t("Drop here to put pages at the end"))).into_any_element();
                 }
@@ -242,7 +249,7 @@ impl Viewer {
                             .text_color(if index == current { theme.text } else { theme.muted })
                             .child(SharedString::from((index + 1).to_string())),
                     )
-                    .on_drag(dragged, |dragged, _, _, cx| cx.new(|_| DragPreview { count: dragged.pages.len() }))
+                    .when(editing, |row| row.on_drag(dragged, |dragged, _, _, cx| cx.new(|_| DragPreview { count: dragged.pages.len() })))
                     .on_click(cx.listener(move |viewer, event: &ClickEvent, window, cx| {
                         let modifiers = event.modifiers();
                         let order = viewer.page_order();

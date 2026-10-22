@@ -32,3 +32,17 @@ Legend: milestone where it lands, or `later` / `no`.
 | Convert | PDF to images, images to PDF | later | PDFium / pdf-writer |
 | Convert | PDF to Word / Excel | no | out of scope |
 | Compare | Diff two PDFs | later | PDFium text |
+
+## Next: gaps found against Sejda's editor (2026-10-22)
+
+| Area | Feature | Status |
+|---|---|---|
+| Annotate | Select, move, resize, delete annotations after they are made | missing (only undo) |
+| Edit | Whiteout (cover in white) | missing (redaction paints black) |
+| Edit | Delete an existing image | missing |
+| Sign | Several handwriting styles and ink colours, signature from an image | missing (one typed style, black) |
+| Text | Find and replace | missing |
+| Annotate | Freehand highlighter, hide annotations | missing |
+| Annotate | Stamps placed by hand ("DRAFT", "PAID") | partial (watermark only) |
+| Links | Add and edit links | missing |
+| Forms | Symbols (✕ ✓ •), create fields, detect fields, tab order | missing |

@@ -1,4 +1,4 @@
-//! Recto binary: `recto [file.pdf] [--page=N] [--zoom=PCT] [--sidebar=thumbnails|outline] [--tool=NAME] [--find=TEXT] [--apply=EDITS] [--save-as=PATH] [--export=PATH [--compress] [--grayscale] [--flatten] [--password=PASS]] [--ocr] [--dark|--light]`.
+//! Recto binary: `recto [file.pdf] [--edit] [--page=N] [--zoom=PCT] [--sidebar=thumbnails|outline] [--tool=NAME] [--find=TEXT] [--apply=EDITS] [--save-as=PATH] [--export=PATH [--compress] [--grayscale] [--flatten] [--password=PASS]] [--ocr] [--dark|--light]`.
 //! Opens one document in a continuous, zoomable page view.
 
 // Release builds on Windows are GUI programs: no console window opens with them. Debug builds
@@ -54,6 +54,8 @@ pub struct Args {
     pub menu: Option<MenuKind>,
     /// Form open at start (`--dialog=export|watermark|numbers|header|properties|extract|split`).
     pub dialog: Option<String>,
+    /// Starts in edit mode (`--edit`); documents otherwise open read-only.
+    pub edit: bool,
 }
 
 impl Args {
@@ -95,6 +97,8 @@ impl Args {
                 parsed.menu = MenuKind::parse(name);
             } else if let Some(name) = arg.strip_prefix("--dialog=") {
                 parsed.dialog = Some(name.to_owned());
+            } else if arg == "--edit" {
+                parsed.edit = true;
             } else if arg == "--ocr" {
                 parsed.ocr = true;
             } else if arg == "--dark" {
@@ -154,7 +158,8 @@ mod tests {
 
     #[test]
     fn parses_export_flags() {
-        let args = parse("a.pdf --export=out.pdf --compress --grayscale --password=secret --ocr");
+        let args = parse("a.pdf --export=out.pdf --compress --grayscale --password=secret --ocr --edit");
+        assert!(args.edit);
         assert_eq!(args.export, Some(PathBuf::from("out.pdf")));
         assert!(args.ocr && args.export_options.compress && args.export_options.grayscale && !args.export_options.flatten_forms);
         assert!(matches!(&args.export_options.security, Security::Protect(protection) if protection.user_password == "secret"));

@@ -132,8 +132,7 @@ impl Viewer {
             None => (0, String::new()),
         };
         let current = self.current_page();
-        let (can_undo, can_redo, modified) =
-            open.map_or((false, false, false), |open| (open.document.can_undo(), open.document.can_redo(), open.document.is_modified()));
+        let modified = open.is_some_and(|open| open.document.is_modified());
 
         let mut bar = div()
             .flex()
@@ -203,18 +202,34 @@ impl Viewer {
                     .child(svg().path(icon("chevron-down")).size(px(12.)).text_color(theme.muted))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_menu(kind, cx)))
             };
-            bar = bar
-                .child(icon_button("undo", "undo-2", "Undo (Ctrl+Z)", false, can_undo, theme).on_click(cx.listener(|this, _, window, cx| this.undo(window, cx))))
-                .child(icon_button("redo", "redo-2", "Redo (Ctrl+Y)", false, can_redo, theme).on_click(cx.listener(|this, _, window, cx| this.redo(window, cx))))
-                .child(separator(theme))
-                .child(menu_button("pages-menu", "layers", "Pages", MenuKind::Pages))
-                .child(menu_button("document-menu", "file-text", "Document", MenuKind::Document))
-                .child(
-                    icon_button("find", "search", "Find (Ctrl+F)", self.search.open, true, theme)
-                        .on_click(cx.listener(|this, _, window, cx| if this.search.open { this.close_search(window, cx) } else { this.open_search(window, cx) })),
-                )
-                .child(div().w(px(4.)))
-                .child(primary_button("save", "Save", modified, theme).on_click(cx.listener(|this, _, window, cx| this.save(window, cx))));
+            let editing = self.editing;
+            let find = icon_button("find", "search", "Find (Ctrl+F)", self.search.open, true, theme)
+                .on_click(cx.listener(|this, _, window, cx| if this.search.open { this.close_search(window, cx) } else { this.open_search(window, cx) }));
+            if editing {
+                bar = bar
+                    .child(menu_button("pages-menu", "layers", "Pages", MenuKind::Pages))
+                    .child(menu_button("document-menu", "file-text", "Document", MenuKind::Document))
+                    .child(find)
+                    .child(separator(theme))
+                    .child(
+                        text_button("done-editing", Some("check"), "Done", theme)
+                            .tooltip(crate::chrome::tooltip("Back to reading; changes stay until you save or close", theme))
+                            .on_click(cx.listener(|this, _, window, cx| this.set_editing(false, window, cx))),
+                    )
+                    .child(primary_button("save", "Save", modified, theme).on_click(cx.listener(|this, _, window, cx| this.save(window, cx))));
+            } else {
+                bar = bar.child(find).child(div().w(px(4.)));
+                if modified {
+                    bar = bar.child(text_button("save", Some("save"), "Save", theme).on_click(cx.listener(|this, _, window, cx| this.save(window, cx))));
+                }
+                bar = bar.child(
+                    primary_button("edit", "Edit", true, theme)
+                        .gap(px(6.))
+                        .child(svg().path(icon("pencil")).size(px(14.)).text_color(theme.on_accent))
+                        .tooltip(crate::chrome::tooltip("Annotate, sign, organize pages and use the document tools", theme))
+                        .on_click(cx.listener(|this, _, window, cx| this.set_editing(true, window, cx))),
+                );
+            }
         }
         bar.into_any_element()
     }
@@ -237,6 +252,11 @@ impl Viewer {
             .border_color(theme.border)
             .text_color(theme.text)
             .text_sm();
+        let (can_undo, can_redo) = self.open().map_or((false, false), |open| (open.document.can_undo(), open.document.can_redo()));
+        bar = bar
+            .child(icon_button("undo", "undo-2", "Undo (Ctrl+Z)", false, can_undo, theme).on_click(cx.listener(|this, _, window, cx| this.undo(window, cx))))
+            .child(icon_button("redo", "redo-2", "Redo (Ctrl+Y)", false, can_redo, theme).on_click(cx.listener(|this, _, window, cx| this.redo(window, cx))))
+            .child(separator(theme));
         for (n, group) in TOOL_GROUPS.iter().enumerate() {
             if n > 0 {
                 bar = bar.child(separator(theme));
@@ -360,5 +380,20 @@ impl Viewer {
             .left_0()
             .child(deferred(anchored().snap_to_window_with_margin(px(8.)).child(panel)).with_priority(1))
             .into_any_element()
+    }
+}
+
+impl Viewer {
+    /// Enters or leaves edit mode. Leaving keeps the changes (until saved or closed) and goes
+    /// back to selecting text.
+    pub(super) fn set_editing(&mut self, editing: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.editing = editing;
+        self.menu = None;
+        if !editing {
+            self.set_tool(Tool::Select, cx);
+            self.rail.clear();
+            window.focus(&self.focus);
+        }
+        cx.notify();
     }
 }

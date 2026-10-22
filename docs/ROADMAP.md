@@ -65,7 +65,8 @@ Each milestone ends with something you can run and show. Estimates are evenings 
 ## Interface — design pass — done on `dev`, not hand-checked
 
 * One app bar (files, page navigation, zoom, history, Pages and Document menus, search, Save) and one tool bar (tools as icons in groups, colour and width), replacing four rows of text buttons.
-* Lucide icons (ISC, `crates/recto-app/assets/`), tooltips with shortcuts, notices as a floating toast, a start screen with the recent files, refined light and dark themes.
+* Lucide icons (ISC, `crates/recto-app/assets/`), tooltips with shortcuts, notices as a floating toast, a start screen with the recent files, light and dark themes in the brand colours (docs/brand.md), checked for WCAG contrast.
+* Documents open read-only, like an image viewer: page navigation, zoom, search, selection and form filling. An Edit button shows the tool bar, the Pages and Document menus and enables page operations; Done goes back to reading and keeps the changes. `--edit` starts in edit mode (as do `--tool`, `--apply`, `--menu`, `--dialog`).
 
 **Done when:** at most two toolbar rows at 900 px wide in French; every action reachable from a bar, a menu or a shortcut; light and dark themes checked by screenshot.
 

@@ -201,6 +201,10 @@ const FR: &[(&str, &str)] = &[
     ("Close (Esc)", "Fermer (Échap)"),
     ("Position", "Position"),
     ("Del", "Suppr"),
+    ("Edit", "Modifier"),
+    ("Done", "Terminer"),
+    ("Annotate, sign, organize pages and use the document tools", "Annoter, signer, organiser les pages et utiliser les outils du document"),
+    ("Back to reading; changes stay until you save or close", "Revenir à la lecture ; les modifications restent jusqu’à l’enregistrement ou la fermeture"),
 ];
 
 fn lang() -> Lang {

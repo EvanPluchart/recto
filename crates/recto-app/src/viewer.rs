@@ -301,6 +301,8 @@ pub struct Viewer {
     /// The open menu, and the last one closed by a click outside (with when).
     menu: Option<MenuKind>,
     menu_closed: Option<(MenuKind, std::time::Instant)>,
+    /// Edit mode: tools, page operations and document tools are shown. Documents open read-only.
+    editing: bool,
     /// Text recognition in progress, and the engine once loaded.
     ocr: Option<OcrJob>,
     ocr_engine: Option<Arc<recto_ocr::Engine>>,
@@ -354,6 +356,7 @@ impl Viewer {
             edit_draft: None,
             menu: args.menu,
             menu_closed: None,
+            editing: args.edit || args.tool.is_some() || !args.apply.is_empty() || args.menu.is_some() || args.dialog.is_some(),
             ocr: None,
             ocr_engine: None,
         };
@@ -929,11 +932,11 @@ impl Render for Viewer {
             .on_action(cx.listener(|this, _: &Redo, window, cx| this.redo(window, cx)))
             .on_action(cx.listener(|this, _: &Save, window, cx| this.save(window, cx)))
             .on_action(cx.listener(|this, _: &SaveAs, window, cx| this.save_as(window, cx)))
-            .on_action(cx.listener(|this, _: &RotateLeft, window, cx| this.rotate(Rotation::R270, window, cx)))
-            .on_action(cx.listener(|this, _: &RotateRight, window, cx| this.rotate(Rotation::R90, window, cx)))
-            .on_action(cx.listener(|this, _: &DeletePages, window, cx| this.delete_pages(window, cx)))
-            .on_action(cx.listener(|this, _: &InsertBlank, window, cx| this.insert_blank(window, cx)))
-            .on_action(cx.listener(|this, _: &InsertFile, window, cx| this.prompt_insert_files(window, cx)))
+            .on_action(cx.listener(|this, _: &RotateLeft, window, cx| if this.editing { this.rotate(Rotation::R270, window, cx) }))
+            .on_action(cx.listener(|this, _: &RotateRight, window, cx| if this.editing { this.rotate(Rotation::R90, window, cx) }))
+            .on_action(cx.listener(|this, _: &DeletePages, window, cx| if this.editing { this.delete_pages(window, cx) }))
+            .on_action(cx.listener(|this, _: &InsertBlank, window, cx| if this.editing { this.insert_blank(window, cx) }))
+            .on_action(cx.listener(|this, _: &InsertFile, window, cx| if this.editing { this.prompt_insert_files(window, cx) }))
             .on_action(cx.listener(|this, _: &Extract, window, cx| this.open_dialog(DialogKind::Extract, window, cx)))
             .on_action(cx.listener(|this, _: &Split, window, cx| {
                 this.open_dialog(DialogKind::Split(SplitMode::Ranges), window, cx)
@@ -946,7 +949,7 @@ impl Render for Viewer {
             .flex_col()
             .bg(theme.canvas)
             .child(self.app_bar(cx))
-            .children(self.tool_bar(cx))
+            .children(self.tool_bar(cx).filter(|_| self.editing))
             .children(self.search_bar(cx))
             .child(div().flex().flex_1().min_h_0().children(self.sidebar(window, cx)).child(self.pages(window, cx)))
             .children(self.recent_menu(cx))
