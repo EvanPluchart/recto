@@ -88,7 +88,8 @@ impl Viewer {
     /// Asks for the next page image, or reports the end of the job.
     pub(super) fn ocr_next(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(job) = &mut self.ocr else { return };
-        if job.current.is_some() {
+        // Until the engine is loaded (its callback calls back here), nothing is asked for.
+        if job.current.is_some() || self.ocr_engine.is_none() {
             return;
         }
         let State::Open(open) = &self.state else {
