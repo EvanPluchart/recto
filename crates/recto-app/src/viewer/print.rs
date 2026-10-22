@@ -24,6 +24,7 @@ pub struct PrintJob {
     sheets: std::sync::mpsc::Sender<crate::printer::Sheet>,
 }
 
+/// A PDF being handed to `lp` (macOS, Linux).
 #[cfg(not(windows))]
 pub struct PrintJob;
 
@@ -57,6 +58,7 @@ impl Viewer {
             let snapshot = open.document.clone();
             let name = format!("{}.pdf", self.stem());
             self.notice = Some(t("Sending to the printer…").into());
+            self.printing = Some(PrintJob);
             cx.notify();
             let task = cx.background_executor().spawn(async move {
                 let bytes = snapshot.build().map_err(|error| error.to_string())?;
@@ -70,6 +72,7 @@ impl Viewer {
             cx.spawn(async move |this, cx| {
                 let sent = task.await;
                 this.update(cx, |viewer, cx| {
+                    viewer.printing = None;
                     viewer.notice = Some(match sent {
                         Ok(()) => t("Sent to the default printer.").into(),
                         Err(error) => failure("Cannot print", error),

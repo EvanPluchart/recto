@@ -4583,6 +4583,7 @@ dependencies = [
  "recto-ocr",
  "recto-render",
  "sys-locale",
+ "windows 0.61.3",
 ]
 
 [[package]]
