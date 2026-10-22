@@ -19,6 +19,9 @@ use crate::recent;
 const OCR_PPI: f32 = 300.0;
 /// Longest side of those images, in pixels, for very large pages.
 const MAX_SIDE: f32 = 6000.0;
+/// Pages recognised between two rebuilds. A text layer is invisible, so the page images do not
+/// change: rebuilding after every page would make a long scan quadratic.
+const REBUILD_EVERY: usize = 16;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Stage {
@@ -34,6 +37,8 @@ pub struct OcrJob {
     done: usize,
     total: usize,
     words: usize,
+    /// Text layers recorded since the last rebuild.
+    unbuilt: usize,
 }
 
 fn models_folder() -> Option<std::path::PathBuf> {
@@ -47,7 +52,7 @@ impl Viewer {
             return;
         }
         let total = pages.len();
-        self.ocr = Some(OcrJob { waiting: pages, current: None, done: 0, total, words: 0 });
+        self.ocr = Some(OcrJob { waiting: pages, current: None, done: 0, total, words: 0, unbuilt: 0 });
         if self.ocr_engine.is_some() {
             return self.ocr_next(window, cx);
         }
@@ -86,7 +91,7 @@ impl Viewer {
     }
 
     /// Asks for the next page image, or reports the end of the job.
-    pub(super) fn ocr_next(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn ocr_next(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(job) = &mut self.ocr else { return };
         // Until the engine is loaded (its callback calls back here), nothing is asked for.
         if job.current.is_some() || self.ocr_engine.is_none() {
@@ -111,8 +116,11 @@ impl Viewer {
             open.renderer.request(RenderRequest { page, index, scale, generation: u64::MAX, purpose: Purpose::Ocr, tile: None });
             return cx.notify();
         }
-        let (words, total) = (job.words, job.total);
+        let (words, total, unbuilt) = (job.words, job.total, job.unbuilt);
         self.ocr = None;
+        if unbuilt > 0 {
+            self.rebuild(window, cx);
+        }
         self.notice = Some(if words == 0 {
             t("No text was recognized.").into()
         } else {
@@ -178,10 +186,19 @@ impl Viewer {
                 Word { text: word.text, rect: geometry.rect_to_user(shown) }
             })
             .collect();
-        if let Some(job) = &mut self.ocr {
-            job.words += words.len();
+        let count = words.len();
+        let State::Open(open) = &mut self.state else { return };
+        open.document.apply(Op::AddTextLayer { page, layer: TextLayer { words, upright: geometry.rotate } });
+        let Some(job) = &mut self.ocr else { return };
+        job.words += count;
+        job.unbuilt += 1;
+        if job.unbuilt >= REBUILD_EVERY {
+            // The rebuild asks for the next page once reloaded (`ocr_resume`).
+            job.unbuilt = 0;
+            self.rebuild(window, cx);
+        } else {
+            self.update_title(window);
+            self.ocr_next(window, cx);
         }
-        // The rebuild that follows asks for the next page (`ocr_resume` after the reload).
-        self.edit(Op::AddTextLayer { page, layer: TextLayer { words, upright: geometry.rotate } }, window, cx);
     }
 }
