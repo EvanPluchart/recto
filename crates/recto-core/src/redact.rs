@@ -9,12 +9,14 @@
 //!   uncompressed, Flate, LZW or baseline JPEG in gray or RGB), and removed otherwise; inline
 //!   images that meet an area are removed;
 //! * form XObjects that meet an area are copied and redacted recursively;
-//! * paths lying entirely inside an area are not painted; paths crossing its edge are kept and
+//! * subpaths lying entirely inside an area are taken out (the path is not painted when none is
+//!   left); subpaths crossing its edge, and clipping paths, are kept and
 //!   covered by the black box;
 //! * annotations and form fields that meet an area are deleted, with their values;
 //! * alternate text of marked content (`/ActualText`, `/Alt`) on the page is dropped, as are the
 //!   page thumbnail and the document's structure tree, which may repeat the text.
 //!
+//! * an XFA form's datasets are dropped, image copies lose their `/Alternates` and `/OPI`.//!//! Not covered: the inside of tiling patterns, and document-level text (`/Info`, XMP metadata,//! bookmarks, embedded files, page labels), which the Metadata tool can clear.//!
 //! Shared objects are never modified: the page gets new content, resources and copies.
 
 use std::collections::{HashMap, HashSet};
@@ -80,6 +82,21 @@ pub fn redact_page(document: &mut lopdf::Document, page: ObjectId, painted: &[(R
         catalog.remove(b"StructTreeRoot");
         catalog.remove(b"MarkInfo");
     }
+    // An XFA form repeats every field value in its datasets; the AcroForm fields remain.
+    let form = document.catalog().ok().and_then(|catalog| catalog.get(b"AcroForm").ok()).cloned();
+    match form {
+        Some(Object::Reference(id)) => {
+            if let Ok(form) = document.get_dictionary_mut(id) {
+                form.remove(b"XFA");
+            }
+        }
+        Some(Object::Dictionary(_)) => {
+            if let Ok(Object::Dictionary(form)) = document.catalog_mut().and_then(|catalog| catalog.get_mut(b"AcroForm")) {
+                form.remove(b"XFA");
+            }
+        }
+        _ => {}
+    }
     Ok(originals)
 }
 
@@ -104,24 +121,38 @@ pub fn forget(document: &mut lopdf::Document, originals: &[ObjectId]) -> lopdf::
         if listed.is_empty() {
             continue;
         }
-        let drawn: HashSet<Vec<u8>> = Content::decode(&crate::content::page_content(document, page))
-            .map(|content| {
-                content
-                    .operations
-                    .into_iter()
-                    .filter(|operation| operation.operator == "Do")
-                    .filter_map(|operation| operation.operands.first().and_then(|value| value.as_name().ok()).map(<[u8]>::to_vec))
-                    .collect()
-            })
-            .unwrap_or_default();
-        // Forms without resources of their own use the page's: any name may be drawn.
-        let inheriting = xobjects.iter().any(|(_, value)| {
-            dictionary(document, value).is_some_and(|form| {
-                form.get(b"Subtype").ok().and_then(|value| value.as_name().ok()) == Some(b"Form") && !form.has(b"Resources")
-            })
-        });
-        if inheriting {
-            continue;
+        let names_drawn = |bytes: &[u8]| -> Vec<Vec<u8>> {
+            Content::decode(bytes)
+                .map(|content| {
+                    content
+                        .operations
+                        .into_iter()
+                        .filter(|operation| operation.operator == "Do")
+                        .filter_map(|operation| operation.operands.first().and_then(|value| value.as_name().ok()).map(<[u8]>::to_vec))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let mut drawn: HashSet<Vec<u8>> = names_drawn(&crate::content::page_content(document, page)).into_iter().collect();
+        // Forms without resources of their own use the page's: the names they draw count too.
+        let mut pending: Vec<Vec<u8>> = drawn.iter().cloned().collect();
+        let mut read: HashSet<Vec<u8>> = HashSet::new();
+        while let Some(name) = pending.pop() {
+            if !read.insert(name.clone()) || read.len() > MAX_FORMS {
+                continue;
+            }
+            let Some(form) = xobjects.get(&name).ok().and_then(|value| resolve(document, value).as_stream().ok()) else { continue };
+            if form.dict.get(b"Subtype").ok().and_then(|value| value.as_name().ok()) != Some(b"Form") || form.dict.has(b"Resources") {
+                continue;
+            }
+            let Ok(bytes) = (if form.dict.has(b"Filter") { form.decompressed_content_with_limit(crate::content::MAX_STREAM_BYTES) } else { Ok(form.content.clone()) }) else {
+                continue;
+            };
+            for inner in names_drawn(&bytes) {
+                if drawn.insert(inner.clone()) {
+                    pending.push(inner);
+                }
+            }
         }
         let mut resources = resources.clone();
         let mut xobjects = xobjects.clone();
@@ -317,11 +348,33 @@ impl Redactor<'_> {
         let mut stack: Vec<Graphics> = Vec::new();
         let mut graphics = Graphics::new(ctm);
         let mut text = Text::new();
-        let mut path: Vec<Point> = Vec::new();
+        // The path being built: where each subpath starts in `out`, and its points (user space).
+        let mut subpaths: Vec<(usize, Vec<Point>)> = Vec::new();
+        let mut clips = false;
         let mut out: Vec<Operation> = Vec::with_capacity(operations.len());
         // XObject names replaced by copies or dropped; removed from the resources if unused.
         let mut replaced: HashSet<Vec<u8>> = HashSet::new();
         let mut xobjects = resources.get(b"XObject").ok().and_then(|value| dictionary(self.document, value)).cloned().unwrap_or_default();
+        // Property lists named by `BDC` (`/Span /MC0 BDC`) live in the resources: their alternate
+        // text is dropped like that of inline ones. Others (optional content groups) are kept as
+        // they are, since the document refers to them.
+        if let Some(properties) = resources.get(b"Properties").ok().and_then(|value| dictionary(self.document, value)).cloned() {
+            let mut cleaned = Dictionary::new();
+            for (name, value) in properties.iter() {
+                let value = match dictionary(self.document, value) {
+                    Some(list) if [b"ActualText".as_slice(), b"Alt", b"E"].iter().any(|key| list.has(key)) => {
+                        let mut list = list.clone();
+                        for key in [b"ActualText".as_slice(), b"Alt", b"E"] {
+                            list.remove(key);
+                        }
+                        Object::Dictionary(list)
+                    }
+                    _ => value.clone(),
+                };
+                cleaned.set(name.clone(), value);
+            }
+            resources.set("Properties", Object::Dictionary(cleaned));
+        }
 
         for mut operation in operations {
             let operands = &operation.operands;
@@ -444,33 +497,50 @@ impl Redactor<'_> {
                         }
                     }
                 }
-                "m" | "l" => path.push(graphics.ctm.apply(Point { x: number(0), y: number(1) })),
-                "c" => {
-                    for index in [0, 2, 4] {
-                        path.push(graphics.ctm.apply(Point { x: number(index), y: number(index + 1) }));
+                "m" => subpaths.push((out.len(), vec![graphics.ctm.apply(Point { x: number(0), y: number(1) })])),
+                "l" | "c" | "v" | "y" => {
+                    let indices: &[usize] = match operation.operator.as_str() {
+                        "l" => &[0],
+                        "c" => &[0, 2, 4],
+                        _ => &[0, 2],
+                    };
+                    if subpaths.is_empty() {
+                        subpaths.push((out.len(), Vec::new()));
                     }
-                }
-                "v" | "y" => {
-                    for index in [0, 2] {
-                        path.push(graphics.ctm.apply(Point { x: number(index), y: number(index + 1) }));
+                    if let Some((_, points)) = subpaths.last_mut() {
+                        points.extend(indices.iter().map(|&index| graphics.ctm.apply(Point { x: number(index), y: number(index + 1) })));
                     }
                 }
                 "re" => {
                     let (x, y, width, height) = (number(0), number(1), number(2), number(3));
-                    for (px, py) in [(x, y), (x + width, y), (x, y + height), (x + width, y + height)] {
-                        path.push(graphics.ctm.apply(Point { x: px, y: py }));
-                    }
+                    let corners = [(x, y), (x + width, y), (x, y + height), (x + width, y + height)];
+                    subpaths.push((out.len(), corners.iter().map(|&(px, py)| graphics.ctm.apply(Point { x: px, y: py })).collect()));
                 }
+                "W" | "W*" => clips = true,
                 "S" | "s" | "f" | "F" | "f*" | "B" | "B*" | "b" | "b*" | "n" => {
-                    let inside = !path.is_empty() && {
-                        let bounds = bounds_of(path.iter().copied());
-                        self.areas.iter().any(|area| contains(area, &bounds))
+                    let inside = |points: &Vec<Point>| {
+                        !points.is_empty() && {
+                            let bounds = bounds_of(points.iter().copied());
+                            self.areas.iter().any(|area| contains(area, &bounds))
+                        }
                     };
-                    path.clear();
-                    if inside {
+                    let gone: Vec<bool> = subpaths.iter().map(|(_, points)| inside(points)).collect();
+                    let starts: Vec<usize> = subpaths.iter().map(|(start, _)| *start).collect();
+                    subpaths.clear();
+                    let clipping = std::mem::take(&mut clips);
+                    if !gone.is_empty() && gone.iter().all(|&gone| gone) {
                         // Ends the path without painting it; a pending clip still applies.
                         out.push(Operation::new("n", vec![]));
                         continue;
+                    }
+                    // Subpaths inside an area are taken out of a path that also reaches outside
+                    // (outlined text drawn as one fill). A clipping path is kept whole: the black
+                    // box covers it.
+                    if !clipping {
+                        for index in (0..gone.len()).rev().filter(|&index| gone[index]) {
+                            let end = starts.get(index + 1).copied().unwrap_or(out.len());
+                            out.drain(starts[index]..end);
+                        }
                     }
                 }
                 _ => {}
@@ -833,6 +903,32 @@ mod tests {
         assert!(!content.contains("/Im1 Do") && content.contains("/Fm1 Do"), "{content}");
         assert!(!reopened.extract_text(&[1]).unwrap().contains("ALPHATOKEN"));
     }
+    #[test]
+    fn subpaths_inside_an_area_leave_a_path_that_reaches_outside() {
+        let document = lopdf::Document::with_version("1.7");
+        let mut redactor = Redactor { document: &document, areas: &[area(0.0, 0.0, 50.0, 50.0)], created: Vec::new(), next_id: 1, serial: 0, originals: Vec::new(), forms_left: MAX_FORMS };
+        // One fill: a triangle inside the area, a square outside it.
+        let operations = Content::decode(b"10 10 m 20 10 l 15 20 l h 100 100 10 10 re f").unwrap().operations;
+        let (out, _) = redactor.run(operations, Dictionary::new(), Matrix::IDENTITY, 0);
+        let operators: Vec<&str> = out.iter().map(|operation| operation.operator.as_str()).collect();
+        assert_eq!(operators, ["re", "f"]);
+    }
+
+    #[test]
+    fn named_property_lists_lose_their_alternate_text() {
+        let mut list = Dictionary::new();
+        list.set("ActualText", Object::string_literal("SECRET"));
+        let mut properties = Dictionary::new();
+        properties.set("MC0", Object::Dictionary(list));
+        let mut resources = Dictionary::new();
+        resources.set("Properties", Object::Dictionary(properties));
+        let document = lopdf::Document::with_version("1.7");
+        let mut redactor = Redactor { document: &document, areas: &[area(0.0, 0.0, 1.0, 1.0)], created: Vec::new(), next_id: 1, serial: 0, originals: Vec::new(), forms_left: MAX_FORMS };
+        let operations = Content::decode(b"/Span /MC0 BDC EMC").unwrap().operations;
+        let (_, resources) = redactor.run(operations, resources, Matrix::IDENTITY, 0);
+        assert!(!format!("{resources:?}").contains("SECRET"));
+    }
+
     #[test]
     fn unknown_code_lengths_remove_the_whole_string() {
         let mut fonts = Dictionary::new();

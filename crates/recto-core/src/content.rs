@@ -335,7 +335,8 @@ pub(crate) struct Pixels {
 /// `stream` with its data replaced by decoded 8-bit pixels, Flate-compressed.
 pub(crate) fn raw_copy(stream: &Stream, pixels: Pixels) -> Stream {
     let mut dict = stream.dict.clone();
-    for key in [b"Filter".as_slice(), b"DecodeParms", b"Length"] {
+    // Alternate versions (print, OPI proxies) would still hold the original pixels.
+    for key in [b"Filter".as_slice(), b"DecodeParms", b"Length", b"Alternates", b"OPI"] {
         dict.remove(key);
     }
     dict.set("BitsPerComponent", 8);
