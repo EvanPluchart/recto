@@ -117,7 +117,7 @@ pub fn parse_edits(spec: &str) -> Result<Vec<EditSpec>, String> {
                             vec![Point { x: numbers[0], y: numbers[1] }, Point { x: numbers[0] + numbers[2], y: numbers[1] + numbers[3] }]
                         }
                         Tool::DeleteImage if numbers.len() == 2 => vec![Point { x: numbers[0], y: numbers[1] }],
-                        Tool::Line | Tool::Arrow | Tool::Freehand if numbers.len() >= 4 && numbers.len() % 2 == 0 => {
+                        Tool::Line | Tool::Arrow | Tool::Freehand | Tool::Marker if numbers.len() >= 4 && numbers.len() % 2 == 0 => {
                             numbers.chunks(2).map(|pair| Point { x: pair[0], y: pair[1] }).collect()
                         }
                         _ => return Err(format!("wrong coordinates for {tool_name}: {part}")),
@@ -355,6 +355,7 @@ impl Viewer {
                         Tool::StrikeOut => Kind::StrikeOut { quads: vec![area(points[0], points[1])] },
                         Tool::Line | Tool::Arrow => Kind::Line { from: user[0], to: user[1], arrow: tool == Tool::Arrow },
                         Tool::Freehand => Kind::Ink { strokes: vec![user] },
+                        Tool::Marker => Kind::Marker { strokes: vec![user] },
                         Tool::Text => {
                             let size = inspector.size;
                             let at = points[0];
@@ -364,8 +365,9 @@ impl Viewer {
                         }
                         _ => continue,
                     };
-                    let color = if tool == Tool::Highlight { Color::YELLOW } else { inspector.color };
-                    let annotation = Annotation { kind, color, width: inspector.width };
+                    let color = if matches!(tool, Tool::Highlight | Tool::Marker) { Color::YELLOW } else { inspector.color };
+                    let width = if tool == Tool::Marker { super::annotate::marker_width(inspector.width) } else { inspector.width };
+                    let annotation = Annotation { kind, color, width };
                     document.apply(Op::AddAnnotation { page: state.id, annotation });
                 }
             }

@@ -13,6 +13,7 @@ enum Command {
     Open { bytes: Arc<[u8]>, password: Option<String> },
     Render(RenderRequest),
     Text(usize),
+    Annotations(bool),
 }
 
 #[derive(Debug)]
@@ -78,6 +79,11 @@ impl RenderThread {
     }
 
     /// Asks for the text of page `index`.
+    /// Draws the next pages with or without their annotations.
+    pub fn show_annotations(&self, show: bool) {
+        let _ = self.commands.send(Command::Annotations(show));
+    }
+
     pub fn text(&self, index: usize) {
         let _ = self.commands.send(Command::Text(index));
     }
@@ -128,6 +134,10 @@ fn serve<R: Renderer>(
                 Response::Rendered { request, result: renderer.render(&request).map_err(anyhow::Error::new) }
             }
             Command::Text(index) => Response::Text { index, result: renderer.text(index).map_err(anyhow::Error::new) },
+            Command::Annotations(show) => {
+                renderer.show_annotations(show);
+                continue;
+            }
         };
         if responses.send(response).is_err() {
             break;

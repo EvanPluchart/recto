@@ -310,6 +310,8 @@ pub struct Viewer {
     editing: bool,
     /// The annotation picked with the Select tool in edit mode.
     picked: Option<Picked>,
+    /// Pages are drawn with their annotations and form fields.
+    show_annotations: bool,
     /// Text recognition in progress, and the engine once loaded.
     ocr: Option<OcrJob>,
     ocr_engine: Option<Arc<recto_ocr::Engine>>,
@@ -364,6 +366,7 @@ impl Viewer {
             menu: args.menu,
             menu_closed: None,
             picked: None,
+            show_annotations: !args.hide_annotations,
             editing: args.edit || args.replace.is_some() || args.tool.is_some() || !args.apply.is_empty() || args.menu.is_some() || args.dialog.is_some(),
             ocr: None,
             ocr_engine: None,
@@ -449,6 +452,9 @@ impl Viewer {
     ) -> Result<Open, SharedString> {
         let renderer = RenderThread::spawn(PdfiumRenderer::new).map_err(|e| failure("Cannot start the renderer", e))?;
         renderer.open(bytes, document.password());
+        if !self.show_annotations {
+            renderer.show_annotations(false);
+        }
         let Known { pages: page_states, geometry, fields, marks } = known.unwrap_or_else(|| Known::of(&document));
         let responses = renderer.responses().clone();
         // Responses go to this document only: once another one is open, the listener stops.
@@ -1088,6 +1094,30 @@ fn to_render_image(bitmap: Bitmap) -> Option<Arc<RenderImage>> {
     Some(Arc::new(RenderImage::new(vec![image::Frame::new(buffer)])))
 }
 
+
+impl Viewer {
+    /// Shows or hides the annotations and form fields on the pages; every bitmap is drawn again.
+    fn toggle_annotations(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_annotations = !self.show_annotations;
+        let show = self.show_annotations;
+        let State::Open(open) = &mut self.state else { return cx.notify() };
+        open.renderer.show_annotations(show);
+        open.generation = open.renderer.next_generation();
+        for (_, cached) in open.pages.drain() {
+            cx.drop_image(cached.image, Some(window));
+        }
+        for (_, tile) in open.tiles.drain() {
+            cx.drop_image(tile, Some(window));
+        }
+        for (_, thumbnail) in open.thumbnails.drain() {
+            cx.drop_image(thumbnail, Some(window));
+        }
+        open.in_flight.clear();
+        open.tiles_in_flight.clear();
+        open.thumbnails_in_flight.clear();
+        cx.notify();
+    }
+}
 #[cfg(test)]
 mod tests {
     use recto_core::annot::{Annotation, Color, Kind};

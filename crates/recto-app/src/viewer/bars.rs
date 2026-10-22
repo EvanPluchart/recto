@@ -38,7 +38,7 @@ impl MenuKind {
 const TOOL_GROUPS: [&[Tool]; 5] = [
     &[Tool::Select],
     &[Tool::Text, Tool::Highlight, Tool::Underline, Tool::StrikeOut],
-    &[Tool::Rectangle, Tool::Ellipse, Tool::Line, Tool::Arrow, Tool::Freehand],
+    &[Tool::Rectangle, Tool::Ellipse, Tool::Line, Tool::Arrow, Tool::Freehand, Tool::Marker],
     &[Tool::Image, Tool::Signature],
     &[Tool::Redact, Tool::Erase, Tool::DeleteImage, Tool::Crop, Tool::EditText],
 ];
@@ -55,6 +55,7 @@ fn tool_icon(tool: Tool) -> &'static str {
         Tool::Line => "minus",
         Tool::Arrow => "move-up-right",
         Tool::Freehand => "pencil",
+        Tool::Marker => "paintbrush",
         Tool::Image => "image",
         Tool::Signature => "signature",
         Tool::Redact => "eye-off",
@@ -205,12 +206,22 @@ impl Viewer {
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.toggle_menu(kind, cx)))
             };
             let editing = self.editing;
+            let annotations = icon_button(
+                "annotations",
+                if self.show_annotations { "message-square" } else { "message-square-off" },
+                if self.show_annotations { "Hide annotations" } else { "Show annotations" },
+                !self.show_annotations,
+                true,
+                theme,
+            )
+            .on_click(cx.listener(|this, _, window, cx| this.toggle_annotations(window, cx)));
             let find = icon_button("find", "search", "Find (Ctrl+F)", self.search.open, true, theme)
                 .on_click(cx.listener(|this, _, window, cx| if this.search.open { this.close_search(window, cx) } else { this.open_search(window, cx) }));
             if editing {
                 bar = bar
                     .child(menu_button("pages-menu", "layers", "Pages", MenuKind::Pages))
                     .child(menu_button("document-menu", "file-text", "Document", MenuKind::Document))
+                    .child(annotations)
                     .child(find)
                     .child(separator(theme))
                     .child(
@@ -220,7 +231,7 @@ impl Viewer {
                     )
                     .child(primary_button("save", "Save", modified, theme).on_click(cx.listener(|this, _, window, cx| this.save(window, cx))));
             } else {
-                bar = bar.child(find).child(div().w(px(4.)));
+                bar = bar.child(annotations).child(find).child(div().w(px(4.)));
                 if modified {
                     bar = bar.child(text_button("save", Some("save"), "Save", theme).on_click(cx.listener(|this, _, window, cx| this.save(window, cx))));
                 }
@@ -276,7 +287,8 @@ impl Viewer {
             bar = bar.child(
                 div()
                     .id(("color", n))
-                    .size(px(CONTROL))
+                    .w(px(22.))
+                    .h(px(CONTROL))
                     .flex()
                     .items_center()
                     .justify_center()
@@ -303,7 +315,8 @@ impl Viewer {
             bar = bar.child(
                 div()
                     .id(("width", n))
-                    .size(px(CONTROL))
+                    .w(px(24.))
+                    .h(px(CONTROL))
                     .flex()
                     .items_center()
                     .justify_center()

@@ -36,12 +36,14 @@ pub enum RenderError {
 pub struct PdfiumRenderer {
     pdfium: &'static Pdfium,
     document: Option<PdfDocument<'static>>,
+    /// Draw annotations and form fields.
+    annotations: bool,
 }
 
 impl PdfiumRenderer {
     /// Loads the PDFium library on first use. Call it on the render thread (`RenderThread::spawn`).
     pub fn new() -> Result<Self, RenderError> {
-        Ok(Self { pdfium: pdfium()?, document: None })
+        Ok(Self { pdfium: pdfium()?, document: None, annotations: true })
     }
 }
 
@@ -77,7 +79,8 @@ impl Renderer for PdfiumRenderer {
             .set_format(PdfBitmapFormat::BGRA)
             .set_reverse_byte_order(false) // pdfium-render defaults to RGBA output
             .set_clear_color(PdfColor::WHITE)
-            .render_form_data(true);
+            .render_form_data(self.annotations)
+            .render_annotations(self.annotations);
         let bitmap = match request.tile {
             None => page.render_with_config(&config)?,
             Some(tile) => {
@@ -91,6 +94,10 @@ impl Renderer for PdfiumRenderer {
             }
         };
         Ok(tight(&bitmap))
+    }
+
+    fn show_annotations(&mut self, show: bool) {
+        self.annotations = show;
     }
 
     fn text(&mut self, index: usize) -> Result<PageText, RenderError> {

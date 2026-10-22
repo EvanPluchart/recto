@@ -58,6 +58,8 @@ pub struct Args {
     pub edit: bool,
     /// With `--find`, replaces every occurrence at start (`--replace=TEXT`, edit mode).
     pub replace: Option<String>,
+    /// Starts with annotations hidden (`--hide-annotations`).
+    pub hide_annotations: bool,
 }
 
 impl Args {
@@ -101,6 +103,8 @@ impl Args {
                 parsed.dialog = Some(name.to_owned());
             } else if let Some(text) = arg.strip_prefix("--replace=") {
                 parsed.replace = Some(text.to_owned());
+            } else if arg == "--hide-annotations" {
+                parsed.hide_annotations = true;
             } else if arg == "--edit" {
                 parsed.edit = true;
             } else if arg == "--ocr" {

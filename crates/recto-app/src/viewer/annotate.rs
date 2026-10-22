@@ -30,6 +30,8 @@ pub enum Tool {
     Line,
     Arrow,
     Freehand,
+    /// A translucent highlighter, by hand.
+    Marker,
     Image,
     Signature,
     /// Removes what lies under a dragged area.
@@ -45,7 +47,7 @@ pub enum Tool {
 }
 
 impl Tool {
-    pub const ALL: [Tool; 17] = [
+    pub const ALL: [Tool; 18] = [
         Tool::Select,
         Tool::Text,
         Tool::Highlight,
@@ -56,6 +58,7 @@ impl Tool {
         Tool::Line,
         Tool::Arrow,
         Tool::Freehand,
+        Tool::Marker,
         Tool::Image,
         Tool::Signature,
         Tool::Redact,
@@ -78,6 +81,7 @@ impl Tool {
             Tool::Line => "line",
             Tool::Arrow => "arrow",
             Tool::Freehand => "freehand",
+            Tool::Marker => "marker",
             Tool::Image => "image",
             Tool::Signature => "signature",
             Tool::Redact => "redact",
@@ -104,6 +108,7 @@ impl Tool {
             Tool::Line => "Line",
             Tool::Arrow => "Arrow",
             Tool::Freehand => "Draw",
+            Tool::Marker => "Highlighter",
             Tool::Image => "Image",
             Tool::Signature => "Sign",
             Tool::Redact => "Redact",
@@ -258,7 +263,7 @@ impl Viewer {
             x: ((content.x - page_box.x) / layout.zoom).clamp(0.0, size.width),
             y: ((content.y - page_box.y) / layout.zoom).clamp(0.0, size.height),
         };
-        let freehand = self.tool == Tool::Freehand;
+        let freehand = matches!(self.tool, Tool::Freehand | Tool::Marker);
         if let Some(sketch) = &mut self.sketch {
             if freehand {
                 let last = sketch.points.last().copied().unwrap_or(at);
@@ -313,6 +318,14 @@ impl Viewer {
             }
             Tool::Freehand if points.len() > 1 => {
                 Kind::Ink { strokes: vec![points.iter().map(|&p| geometry.to_user(p)).collect()] }
+            }
+            Tool::Marker if points.len() > 1 => {
+                let strokes = vec![points.iter().map(|&p| geometry.to_user(p)).collect()];
+                let width = self.inspector.width;
+                self.inspector.width = marker_width(width);
+                self.annotate(page, Kind::Marker { strokes }, window, cx);
+                self.inspector.width = width;
+                return;
             }
             _ => {
                 cx.notify();
@@ -470,8 +483,8 @@ impl Viewer {
         let sketch = self.sketch.as_ref().filter(|sketch| sketch.page == index)?;
         let points: Vec<Point> = sketch.points.clone();
         let tool = self.tool;
-        let color = rgb(self.inspector.color);
-        let width = (self.inspector.width * zoom).max(1.0);
+        let color = if tool == Tool::Marker { gpui::Rgba { a: 0.45, ..rgb(self.inspector.color) } } else { rgb(self.inspector.color) };
+        let width = (if tool == Tool::Marker { marker_width(self.inspector.width) } else { self.inspector.width } * zoom).max(1.0);
         Some(
             canvas(
                 |_, _, _| {},
@@ -544,4 +557,9 @@ impl Viewer {
         let Some(id) = self.open().and_then(|open| open.page_states.get(page)).map(|state| state.id) else { return };
         self.edit(Op::DeleteImage { page: id, at: geometry.to_user(at) }, window, cx);
     }
+}
+
+/// The highlighter's stroke for a line width of the inspector.
+pub fn marker_width(width: f32) -> f32 {
+    width * 5.0
 }

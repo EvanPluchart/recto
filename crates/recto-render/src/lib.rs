@@ -68,6 +68,8 @@ pub trait Renderer {
     fn render(&mut self, request: &RenderRequest) -> Result<Bitmap, Self::Error>;
     /// Characters of page `index` with their boxes on the displayed page.
     fn text(&mut self, index: usize) -> Result<PageText, Self::Error>;
+    /// Whether pages are drawn with their annotations and form fields (the default).
+    fn show_annotations(&mut self, _show: bool) {}
 }
 
 #[derive(Clone, Debug, PartialEq)]

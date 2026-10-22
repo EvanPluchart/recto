@@ -160,6 +160,8 @@ pub enum Kind {
     Shape { rect: Rect, outline: Arc<Outline>, upright: u16 },
     /// Freehand strokes; drawn signatures too.
     Ink { strokes: Vec<Vec<Point>> },
+    /// A translucent freehand highlighter.
+    Marker { strokes: Vec<Vec<Point>> },
     /// Text markup over the boxes of the marked text.
     Highlight { quads: Vec<Rect> },
     Underline { quads: Vec<Rect> },
@@ -251,7 +253,7 @@ impl Annotation {
             Kind::Rectangle { .. } => b"Square",
             Kind::Ellipse { .. } => b"Circle",
             Kind::Line { .. } => b"Line",
-            Kind::Ink { .. } => b"Ink",
+            Kind::Ink { .. } | Kind::Marker { .. } => b"Ink",
             Kind::Highlight { .. } => b"Highlight",
             Kind::Underline { .. } => b"Underline",
             Kind::StrikeOut { .. } => b"StrikeOut",
@@ -264,7 +266,7 @@ impl Annotation {
         match &self.kind {
             Kind::Text { rect, .. } | Kind::Image { rect, .. } | Kind::Shape { rect, .. } | Kind::Rectangle { rect } | Kind::Ellipse { rect } => *rect,
             Kind::Line { from, to, .. } => bounds([*from, *to], margin * 4.0 + 6.0),
-            Kind::Ink { strokes } => bounds(strokes.iter().flatten().copied(), margin),
+            Kind::Ink { strokes } | Kind::Marker { strokes } => bounds(strokes.iter().flatten().copied(), margin),
             Kind::Highlight { quads } | Kind::Underline { quads } | Kind::StrikeOut { quads } => {
                 bounds(quads.iter().flat_map(corners), 0.0)
             }
@@ -277,7 +279,7 @@ impl Annotation {
         match &self.kind {
             Kind::Text { rect, .. } | Kind::Image { rect, .. } | Kind::Shape { rect, .. } | Kind::Rectangle { rect } | Kind::Ellipse { rect } => *rect,
             Kind::Line { from, to, .. } => bounds([*from, *to], 0.0),
-            Kind::Ink { strokes } => bounds(strokes.iter().flatten().copied(), 0.0),
+            Kind::Ink { strokes } | Kind::Marker { strokes } => bounds(strokes.iter().flatten().copied(), 0.0),
             Kind::Highlight { quads } | Kind::Underline { quads } | Kind::StrikeOut { quads } => {
                 bounds(quads.iter().flat_map(corners), 0.0)
             }
@@ -307,6 +309,7 @@ impl Annotation {
             Kind::Ellipse { rect: r } => Kind::Ellipse { rect: rect(*r) },
             Kind::Line { from, to, arrow } => Kind::Line { from: point(*from), to: point(*to), arrow: *arrow },
             Kind::Ink { strokes } => Kind::Ink { strokes: strokes.iter().map(|stroke| stroke.iter().map(|p| point(*p)).collect()).collect() },
+            Kind::Marker { strokes } => Kind::Marker { strokes: strokes.iter().map(|stroke| stroke.iter().map(|p| point(*p)).collect()).collect() },
             Kind::Highlight { quads } => Kind::Highlight { quads: quads.iter().map(|q| rect(*q)).collect() },
             Kind::Underline { quads } => Kind::Underline { quads: quads.iter().map(|q| rect(*q)).collect() },
             Kind::StrikeOut { quads } => Kind::StrikeOut { quads: quads.iter().map(|q| rect(*q)).collect() },
@@ -427,12 +430,24 @@ impl Annotation {
                     content.stroke();
                 }
             }
-            Kind::Ink { strokes } => {
+            Kind::Ink { strokes } | Kind::Marker { strokes } => {
                 let list = strokes
                     .iter()
                     .map(|stroke| Object::Array(stroke.iter().flat_map(|p| [p.x.into(), p.y.into()]).collect()))
                     .collect();
                 annotation.set("InkList", Object::Array(list));
+                if matches!(self.kind, Kind::Marker { .. }) {
+                    // A highlighter: translucent and multiplied, so the text under it stays readable.
+                    annotation.set("CA", Object::Real(0.45));
+                    let mut state = Dictionary::new();
+                    state.set("Type", Object::Name(b"ExtGState".to_vec()));
+                    state.set("BM", Object::Name(b"Multiply".to_vec()));
+                    state.set("CA", Object::Real(0.45));
+                    let mut states = Dictionary::new();
+                    states.set("GS0", Object::Dictionary(state));
+                    resources.set("ExtGState", Object::Dictionary(states));
+                    content.set_parameters(Name(b"GS0"));
+                }
                 content.set_stroke_rgb(r, g, b).set_line_width(self.width);
                 content.set_line_cap(pdf_writer::types::LineCapStyle::RoundCap);
                 content.set_line_join(pdf_writer::types::LineJoinStyle::RoundJoin);
