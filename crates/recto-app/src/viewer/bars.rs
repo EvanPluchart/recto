@@ -15,7 +15,7 @@ use super::output::SplitMode;
 use super::tools::ToolKind;
 use super::{TOOLBAR_HEIGHT, Tab, Viewer, ZoomMode};
 use crate::assets::icon;
-use crate::chrome::{CONTROL, ICON, icon_button, primary_button, separator, text_button};
+use crate::chrome::{CONTROL, ICON, icon_button, keyed_icon_button, primary_button, separator, text_button};
 use crate::i18n::t;
 use crate::recent;
 
@@ -281,7 +281,7 @@ impl Viewer {
             }
             for &tool in *group {
                 bar = bar.child(
-                    icon_button(tool.name(), tool_icon(tool), tool.label(), self.tool == tool, true, theme)
+                    keyed_icon_button(tool.name(), tool_icon(tool), tool.label(), tool.key(), self.tool == tool, true, theme)
                         .w(px(25.))
                         .on_click(cx.listener(move |viewer, _, _, cx| viewer.set_tool(tool, cx))),
                 );

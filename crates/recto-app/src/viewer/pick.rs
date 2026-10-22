@@ -8,6 +8,7 @@ use recto_core::op::Op;
 
 use super::Viewer;
 use super::annotate::Tool;
+use crate::i18n::t;
 
 /// Half the size of a corner handle, in screen pixels.
 const HANDLE: f32 = 5.0;
@@ -189,6 +190,76 @@ impl Viewer {
         self.edit(Op::UpdateAnnotation { target, annotation }, window, cx);
     }
 
+
+    /// Ctrl+C on a picked annotation: keeps a copy to paste. Returns whether there was one.
+    pub(super) fn copy_picked(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some(picked) = &self.picked else { return false };
+        self.copied = Some(picked.annotation.clone());
+        self.notice = Some(t("Annotation copied.").into());
+        cx.notify();
+        true
+    }
+
+    /// Ctrl+V: places the copied annotation on the current page and picks it.
+    pub(super) fn paste_annotation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.editing {
+            return;
+        }
+        let Some(copied) = self.copied.clone() else { return };
+        self.place_copy(copied, self.current_page(), window, cx);
+    }
+
+    /// Adds `copied` to displayed page `page`, shifted off any annotation in the same place, and
+    /// picks it.
+    fn place_copy(&mut self, copied: Annotation, page: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(id) = self.open().and_then(|open| open.page_states.get(page)).map(|state| state.id) else { return };
+        let Some(geometry) = self.open().and_then(|open| open.geometry.get(page).copied()) else { return };
+        let mut frame = copied.frame();
+        let existing = self.open().map(|open| open.document.annotations(id)).unwrap_or_default();
+        // Shifted 10 points down and right on screen until it lands on free space.
+        for _ in 0..50 {
+            if !existing.iter().any(|(_, annotation)| annotation.frame() == frame) {
+                break;
+            }
+            let mut shown = geometry.rect_to_display(frame);
+            (shown.x, shown.y) = (shown.x + 10.0, shown.y + 10.0);
+            frame = geometry.rect_to_user(shown);
+        }
+        let annotation = copied.mapped(frame);
+        self.edit(Op::AddAnnotation { page: id, annotation }, window, cx);
+        // The new annotation is the last one of its page.
+        if let Some((added, annotation)) = self.open().and_then(|open| open.document.annotations(id).into_iter().last()) {
+            self.picked = Some(Picked { page, id: added, annotation, drag: None });
+        }
+        cx.notify();
+    }
+
+    /// Ctrl+D: a copy of the picked annotation next to it.
+    pub(super) fn duplicate_picked(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.editing {
+            return;
+        }
+        let Some((page, annotation)) = self.picked.as_ref().map(|picked| (picked.page, picked.annotation.clone())) else { return };
+        self.place_copy(annotation, page, window, cx);
+    }
+
+    /// Arrow keys on a picked annotation: moves it by `dx`, `dy` displayed points. Returns
+    /// whether there was one.
+    pub(super) fn nudge_picked(&mut self, dx: f32, dy: f32, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if !self.editing || self.picked.is_none() {
+            return false;
+        }
+        self.restyle_picked(
+            |annotation, geometry| {
+                let mut shown = geometry.rect_to_display(annotation.frame());
+                (shown.x, shown.y) = (shown.x + dx, shown.y + dy);
+                *annotation = annotation.mapped(geometry.rect_to_user(shown));
+            },
+            window,
+            cx,
+        );
+        true
+    }
     /// Deletes the picked annotation; returns whether there was one.
     pub(super) fn delete_picked(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(picked) = self.picked.take() else { return false };

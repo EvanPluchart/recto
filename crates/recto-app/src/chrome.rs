@@ -39,8 +39,32 @@ pub fn tooltip(text: &'static str, theme: Theme) -> impl Fn(&mut Window, &mut Ap
     move |_, cx| cx.new(|_| Tooltip { text: t(text).into(), theme }).into()
 }
 
+/// Builds a tooltip showing `text` (translated) and the key that does the same, if any.
+pub fn tooltip_with_key(text: &'static str, key: Option<&'static str>, theme: Theme) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
+    move |_, cx| {
+        let text: SharedString = match key {
+            Some(key) => format!("{} ({key})", t(text)).into(),
+            None => t(text).into(),
+        };
+        cx.new(|_| Tooltip { text, theme }).into()
+    }
+}
+
 /// A square button showing an icon, with a tooltip. `active` tints it as the current choice.
 pub fn icon_button(id: impl Into<SharedString>, name: &str, label: &'static str, active: bool, enabled: bool, theme: Theme) -> Stateful<Div> {
+    keyed_icon_button(id, name, label, None, active, enabled, theme)
+}
+
+/// `icon_button` whose tooltip also names the key that does the same.
+pub fn keyed_icon_button(
+    id: impl Into<SharedString>,
+    name: &str,
+    label: &'static str,
+    key: Option<&'static str>,
+    active: bool,
+    enabled: bool,
+    theme: Theme,
+) -> Stateful<Div> {
     let color = if !enabled {
         theme.disabled
     } else if active {
@@ -59,7 +83,7 @@ pub fn icon_button(id: impl Into<SharedString>, name: &str, label: &'static str,
         .when(active, |b| b.bg(theme.active))
         .when(enabled && !active, |b| b.cursor_pointer().hover(move |s| s.bg(theme.hover)))
         .when(enabled && active, |b| b.cursor_pointer())
-        .tooltip(tooltip(label, theme))
+        .tooltip(tooltip_with_key(label, key, theme))
         .child(svg().path(icon(name)).size(px(ICON)).text_color(color))
 }
 

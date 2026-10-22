@@ -176,6 +176,7 @@ const FR: &[(&str, &str)] = &[
     ("Text recognition failed", "La reconnaissance de texte a échoué"),
     ("Edit the PDF text (beta)", "Modifier le texte du PDF (bêta)"),
     ("Add text", "Ajouter du texte"),
+    ("Annotation copied.", "Annotation copiée."),
     ("Font: sans serif", "Police : sans empattement"),
     ("Font: serif", "Police : avec empattement"),
     ("Font: monospace", "Police : chasse fixe"),

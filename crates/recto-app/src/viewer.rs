@@ -65,7 +65,8 @@ actions!(
     [
         ZoomIn, ZoomOut, ActualSize, FitWidth, FitPage, GoToPage, LineDown, LineUp, ScreenDown, ScreenUp, FirstPage,
         LastPage, ToggleThumbnails, ToggleOutline, Find, FindNext, FindPrevious, CopySelection, OpenFile, Undo, Redo,
-        Save, SaveAs, RotateLeft, RotateRight, DeletePages, InsertBlank, InsertFile, Extract, Split, CloseMenu
+        Save, SaveAs, RotateLeft, RotateRight, DeletePages, InsertBlank, InsertFile, Extract, Split, CloseMenu, Paste,
+        Duplicate, Left, Right
     ]
 );
 
@@ -328,6 +329,8 @@ pub struct Viewer {
     ocr: Option<OcrJob>,
     /// The file the reader agreed to replace on Save; not asked again for it.
     replace_agreed: Option<std::path::PathBuf>,
+    /// The annotation copied with Ctrl+C, to paste.
+    copied: Option<recto_core::annot::Annotation>,
     ocr_engine: Option<Arc<recto_ocr::Engine>>,
 }
 
@@ -383,6 +386,7 @@ impl Viewer {
             editing: args.edit || args.replace.is_some() || args.tool.is_some() || !args.apply.is_empty() || args.menu.is_some() || args.dialog.is_some(),
             ocr: None,
             replace_agreed: None,
+            copied: None,
             ocr_engine: None,
         };
         // Focus first: a password prompt takes it over.
@@ -948,7 +952,14 @@ impl Render for Viewer {
             .on_action(cx.listener(|this, _: &Find, window, cx| this.open_search(window, cx)))
             .on_action(cx.listener(|this, _: &FindNext, window, cx| this.step_hit(true, window, cx)))
             .on_action(cx.listener(|this, _: &FindPrevious, window, cx| this.step_hit(false, window, cx)))
-            .on_action(cx.listener(|this, _: &CopySelection, _, cx| this.copy_selection(cx)))
+            .on_action(cx.listener(|this, _: &CopySelection, _, cx| {
+                if !this.copy_picked(cx) {
+                    this.copy_selection(cx)
+                }
+            }))
+            .on_action(cx.listener(|this, _: &Paste, window, cx| this.paste_annotation(window, cx)))
+            .on_action(cx.listener(|this, _: &Duplicate, window, cx| this.duplicate_picked(window, cx)))
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| this.on_tool_key(event, window, cx)))
             .on_action(cx.listener(|this, _: &ZoomIn, window, cx| this.step_zoom(true, window, cx)))
             .on_action(cx.listener(|this, _: &ZoomOut, window, cx| this.step_zoom(false, window, cx)))
             .on_action(cx.listener(|this, _: &ActualSize, window, cx| this.set_zoom(ZoomMode::Fixed(1.0), None, window, cx)))
@@ -957,8 +968,29 @@ impl Render for Viewer {
             .on_action(cx.listener(|this, _: &GoToPage, window, cx| {
                 this.page_input.update(cx, |input, cx| input.focus_all(window, cx));
             }))
-            .on_action(cx.listener(|this, _: &LineDown, window, cx| this.scroll_by(LINE, window, cx)))
-            .on_action(cx.listener(|this, _: &LineUp, window, cx| this.scroll_by(-LINE, window, cx)))
+            // Arrow keys move a picked annotation, else scroll or turn pages.
+            .on_action(cx.listener(|this, _: &LineDown, window, cx| {
+                if !this.nudge_picked(0.0, 1.0, window, cx) {
+                    this.scroll_by(LINE, window, cx)
+                }
+            }))
+            .on_action(cx.listener(|this, _: &LineUp, window, cx| {
+                if !this.nudge_picked(0.0, -1.0, window, cx) {
+                    this.scroll_by(-LINE, window, cx)
+                }
+            }))
+            .on_action(cx.listener(|this, _: &Left, window, cx| {
+                if !this.nudge_picked(-1.0, 0.0, window, cx) {
+                    let page = this.current_page().saturating_sub(1);
+                    this.go_to_page(page, window, cx)
+                }
+            }))
+            .on_action(cx.listener(|this, _: &Right, window, cx| {
+                if !this.nudge_picked(1.0, 0.0, window, cx) {
+                    let page = this.current_page() + 1;
+                    this.go_to_page(page, window, cx)
+                }
+            }))
             .on_action(cx.listener(|this, _: &ScreenDown, window, cx| {
                 let step = this.viewport(window).height * 0.9;
                 this.scroll_by(step, window, cx);
@@ -1103,6 +1135,10 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-c", CopySelection, PAGES),
         KeyBinding::new("down", LineDown, PAGES),
         KeyBinding::new("up", LineUp, PAGES),
+        KeyBinding::new("left", Left, PAGES),
+        KeyBinding::new("right", Right, PAGES),
+        KeyBinding::new("secondary-v", Paste, PAGES),
+        KeyBinding::new("secondary-d", Duplicate, PAGES),
         KeyBinding::new("pagedown", ScreenDown, PAGES),
         KeyBinding::new("space", ScreenDown, PAGES),
         KeyBinding::new("pageup", ScreenUp, PAGES),

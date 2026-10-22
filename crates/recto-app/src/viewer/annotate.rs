@@ -134,6 +134,36 @@ impl Tool {
         }
     }
 
+    /// The letter that picks this tool in edit mode.
+    pub fn key(self) -> Option<&'static str> {
+        Some(match self {
+            Tool::Select => "V",
+            Tool::Text => "T",
+            Tool::EditText => "E",
+            Tool::Highlight => "H",
+            Tool::Underline => "U",
+            Tool::Rectangle => "R",
+            Tool::Ellipse => "O",
+            Tool::Line => "L",
+            Tool::Arrow => "A",
+            Tool::Freehand => "D",
+            Tool::Marker => "M",
+            Tool::Image => "I",
+            Tool::Signature => "S",
+            Tool::Stamp => "P",
+            Tool::Link => "K",
+            Tool::Form => "F",
+            Tool::Erase => "W",
+            Tool::Crop => "C",
+            _ => return None,
+        })
+    }
+
+    /// The tool picked by `key` (a typed letter), if any.
+    pub fn for_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|tool| tool.key().is_some_and(|own| own.eq_ignore_ascii_case(key)))
+    }
+
     /// Tools that mark text work on a text selection.
     pub fn selects_text(self) -> bool {
         matches!(self, Tool::Select | Tool::Highlight | Tool::Underline | Tool::StrikeOut)
@@ -218,6 +248,18 @@ impl Viewer {
             self.signature = None;
         }
         cx.notify();
+    }
+
+    /// A letter typed in edit mode (not in a text field) picks its tool.
+    pub(super) fn on_tool_key(&mut self, event: &gpui::KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let modifiers = &event.keystroke.modifiers;
+        if !self.editing || !self.focus.is_focused(window) || modifiers.control || modifiers.alt || modifiers.platform || modifiers.function {
+            return;
+        }
+        if let Some(tool) = Tool::for_key(&event.keystroke.key) {
+            self.set_tool(tool, cx);
+            cx.stop_propagation();
+        }
     }
 
     /// A window position as (displayed page index, point on that page), if it is on a page.
@@ -631,4 +673,18 @@ pub fn marker_width(width: f32) -> f32 {
 /// (displayed page points).
 pub fn text_area(text: &str, size: f32, font: Font, at: Point) -> PageRect {
     PageRect { x: at.x, y: at.y, width: text_width(text, size, font) + 6.0, height: size * 1.3 + 4.0 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Tool;
+
+    #[test]
+    fn each_tool_letter_picks_its_own_tool() {
+        for tool in Tool::ALL {
+            if let Some(key) = tool.key() {
+                assert_eq!(Tool::for_key(&key.to_lowercase()), Some(tool), "{key}");
+            }
+        }
+    }
 }
