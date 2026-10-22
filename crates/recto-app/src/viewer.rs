@@ -24,6 +24,7 @@ mod edit;
 mod forms;
 mod ocr;
 mod pick;
+mod replace;
 mod output;
 mod password;
 mod rail;
@@ -363,7 +364,7 @@ impl Viewer {
             menu: args.menu,
             menu_closed: None,
             picked: None,
-            editing: args.edit || args.tool.is_some() || !args.apply.is_empty() || args.menu.is_some() || args.dialog.is_some(),
+            editing: args.edit || args.replace.is_some() || args.tool.is_some() || !args.apply.is_empty() || args.menu.is_some() || args.dialog.is_some(),
             ocr: None,
             ocr_engine: None,
         };
@@ -398,6 +399,11 @@ impl Viewer {
         }
         if let Some(query) = args.find {
             viewer.preset_search(query, cx);
+        }
+        if let Some(text) = args.replace {
+            viewer.search.replace.update(cx, |input, cx| input.set_text(text, cx));
+            viewer.search.replacing = true;
+            viewer.replace_all(window, cx);
         }
         // Closing the window with unsaved changes asks first.
         let this = cx.entity().downgrade();

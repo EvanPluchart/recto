@@ -56,6 +56,8 @@ pub struct Args {
     pub dialog: Option<String>,
     /// Starts in edit mode (`--edit`); documents otherwise open read-only.
     pub edit: bool,
+    /// With `--find`, replaces every occurrence at start (`--replace=TEXT`, edit mode).
+    pub replace: Option<String>,
 }
 
 impl Args {
@@ -97,6 +99,8 @@ impl Args {
                 parsed.menu = MenuKind::parse(name);
             } else if let Some(name) = arg.strip_prefix("--dialog=") {
                 parsed.dialog = Some(name.to_owned());
+            } else if let Some(text) = arg.strip_prefix("--replace=") {
+                parsed.replace = Some(text.to_owned());
             } else if arg == "--edit" {
                 parsed.edit = true;
             } else if arg == "--ocr" {

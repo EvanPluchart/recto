@@ -41,7 +41,7 @@ Legend: milestone where it lands, or `later` / `no`.
 | Edit | Whiteout (cover in white) | done: Erase removes the content like redaction and paints the area white |
 | Edit | Delete an existing image | done: a click removes the topmost image drawn by the page there |
 | Sign | Several handwriting styles and ink colours, signature from an image | done: four OFL handwriting fonts written as vector outlines, three inks, image through the Image tool |
-| Text | Find and replace | missing |
+| Text | Find and replace | done (edit mode, search bar): exact matches in editable lines, rewritten like Edit text |
 | Annotate | Freehand highlighter, hide annotations | missing |
 | Annotate | Stamps placed by hand ("DRAFT", "PAID") | partial (watermark only) |
 | Links | Add and edit links | missing |

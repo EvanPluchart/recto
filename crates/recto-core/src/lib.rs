@@ -25,7 +25,7 @@ pub mod textlayer;
 #[doc(hidden)]
 pub mod testfont;
 
-pub use build::{BuildError, BuildOptions};
+pub use build::{BuildError, BuildOptions, Replacement};
 pub use document::{Document, OpenError, Source};
 
 /// Stable page identity: survives reordering, so selections and caches stay valid.

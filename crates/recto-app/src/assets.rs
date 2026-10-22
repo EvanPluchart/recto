@@ -46,6 +46,7 @@ icons![
     "panel-left",
     "pencil",
     "redo-2",
+    "replace",
     "rotate-ccw",
     "rotate-cw",
     "save",

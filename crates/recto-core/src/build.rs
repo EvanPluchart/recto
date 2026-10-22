@@ -39,6 +39,17 @@ pub enum BuildError {
     Write(std::io::Error),
 }
 
+
+/// A run of text to change for a find and replace (`Document::find_replacements`).
+#[derive(Clone, Debug)]
+pub struct Replacement {
+    pub page: PageId,
+    pub run: TextRun,
+    /// The run's text with the replacements made.
+    pub text: String,
+    /// Whether the run's own font can show `text` (else the edit needs an added font).
+    pub fits: bool,
+}
 /// How to build.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct BuildOptions {
@@ -419,6 +430,47 @@ impl Document {
                 _ => None,
             })
             .collect()
+    }
+
+    /// Every editable run of text showing `query` (exactly), with its new text once each
+    /// occurrence becomes `replacement`, and whether the run's own font can show it. Each source
+    /// is read once.
+    pub fn find_replacements(&self, query: &str, replacement: &str) -> Result<Vec<Replacement>, BuildError> {
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut loaded: HashMap<u32, (lopdf::Document, Vec<ObjectId>)> = HashMap::new();
+        let mut found = Vec::new();
+        for page in self.pages() {
+            let source = &self.sources()[page.id.source as usize];
+            if !matches!(source, Source::File { .. }) {
+                continue;
+            }
+            let (document, ids) = match loaded.entry(page.id.source) {
+                std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    let document = load(source)?;
+                    let ids = document.get_pages().into_values().collect();
+                    entry.insert((document, ids))
+                }
+            };
+            let Some(&id) = ids.get(page.id.index as usize) else { continue };
+            let mut runs = textedit::runs(document, id);
+            for op in self.ops() {
+                if let Op::EditText { page: target, edit } = op
+                    && *target == page.id
+                    && let Some(run) = runs.iter_mut().find(|run| run.first == edit.first && run.last == edit.last)
+                {
+                    run.text = edit.text.clone();
+                }
+            }
+            for run in runs.into_iter().filter(|run| run.editable && run.text.contains(query)) {
+                let text = run.text.replace(query, replacement);
+                let fits = textedit::fits(document, id, run.first, &text);
+                found.push(Replacement { page: page.id, run, text, fits });
+            }
+        }
+        Ok(found)
     }
 
     /// Whether `text` can replace `run` of `page` in the run's own font (else the edit needs a

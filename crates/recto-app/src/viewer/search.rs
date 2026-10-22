@@ -27,7 +27,10 @@ pub struct Hit {
 pub struct Search {
     pub open: bool,
     input: Entity<TextInput>,
-    query: String,
+    /// The replacement, and whether its field shows (edit mode).
+    pub replace: Entity<TextInput>,
+    pub replacing: bool,
+    pub query: String,
     /// In page order.
     hits: Vec<Hit>,
     current: Option<usize>,
@@ -46,7 +49,14 @@ impl Search {
             TextInputEvent::Cancel => viewer.close_search(window, cx),
         })
         .detach();
-        Self { open: false, input, query: String::new(), hits: Vec::new(), current: None, scan_next: 0, origin: 0 }
+        let replace = cx.new(|cx| TextInput::new(t("Replace with"), |_| true, theme, cx));
+        cx.subscribe_in(&replace, window, |viewer, _, event, window, cx| match event {
+            TextInputEvent::Commit { .. } => viewer.replace_all(window, cx),
+            TextInputEvent::Cancel => viewer.close_search(window, cx),
+            TextInputEvent::Changed(_) => {}
+        })
+        .detach();
+        Self { open: false, input, replace, replacing: false, query: String::new(), hits: Vec::new(), current: None, scan_next: 0, origin: 0 }
     }
 
     /// Forgets the hits of the previous document; an open bar searches the new one with the same query.
@@ -211,6 +221,8 @@ impl Viewer {
         }
         let theme = self.theme;
         let search = &self.search;
+        let editing = self.editing;
+        let replacing = editing && search.replacing;
         let pages = self.open().and_then(|open| open.info.as_ref()).map_or(0, |info| info.page_count());
         let status: SharedString = if search.query.trim().is_empty() {
             SharedString::default()
@@ -229,7 +241,9 @@ impl Viewer {
                 .items_center()
                 .justify_end()
                 .gap(px(6.))
-                .h(px(36.))
+                .flex_wrap()
+                .min_h(px(36.))
+                .py(px(3.))
                 .px(px(8.))
                 .bg(theme.toolbar)
                 .border_b_1()
@@ -241,6 +255,21 @@ impl Viewer {
                 .child(div().min_w(px(72.)).text_color(theme.muted).child(status))
                 .child(crate::chrome::icon_button("search-previous", "chevron-left", "Previous (Shift+F3)", false, true, theme).on_click(cx.listener(|this, _, window, cx| this.step_hit(false, window, cx))))
                 .child(crate::chrome::icon_button("search-next", "chevron-right", "Next (F3)", false, true, theme).on_click(cx.listener(|this, _, window, cx| this.step_hit(true, window, cx))))
+                .when(editing, |bar| {
+                    bar.child(crate::chrome::icon_button("search-replace", "replace", "Replace", replacing, true, theme).on_click(cx.listener(|this, _, window, cx| {
+                        this.search.replacing = !this.search.replacing;
+                        if this.search.replacing {
+                            this.search.replace.update(cx, |input, cx| input.focus_all(window, cx));
+                        }
+                        cx.notify();
+                    })))
+                })
+                .when(replacing, |bar| {
+                    bar.child(div().w(px(200.)).child(search.replace.clone())).child(
+                        crate::chrome::text_button("replace-all", None, "Replace all", theme)
+                            .on_click(cx.listener(|this, _, window, cx| this.replace_all(window, cx))),
+                    )
+                })
                 .child(crate::chrome::icon_button("search-close", "x", "Close (Esc)", false, true, theme).on_click(cx.listener(|this, _, window, cx| this.close_search(window, cx))))
                 .into_any_element(),
         )

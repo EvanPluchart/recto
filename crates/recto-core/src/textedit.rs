@@ -590,6 +590,26 @@ mod tests {
         assert!(embedded, "the fallback font is embedded as a Type0 font");
     }
 
+
+    #[test]
+    fn finds_what_to_replace() {
+        let mut document = fixture();
+        let found = document.find_replacements("line", "ligne").unwrap();
+        let texts: Vec<(&str, bool)> = found.iter().map(|found| (found.text.as_str(), found.fits)).collect();
+        // "Embedded font line" and "Second line"; Helvetica has the letters, the embedded font too.
+        assert_eq!(texts, [("Embedded font ligne", true), ("Second ligne", true)]);
+        // The Type0 subset lacks the new letters: it needs a font.
+        let zero = document.find_replacements("zero", "nul").unwrap();
+        assert_eq!(zero.len(), 1);
+        assert!(!zero[0].fits);
+        for found in found {
+            let edit = TextEdit { first: found.run.first, last: found.run.last, original: found.run.original, text: found.text, font: None };
+            document.apply(Op::EditText { page: found.page, edit });
+        }
+        let shown = text(&document.build().unwrap());
+        assert!(shown.contains("Embedded font ligne") && shown.contains("Second ligne"), "{shown}");
+        assert!(document.find_replacements("line", "x").unwrap().is_empty());
+    }
     #[test]
     fn refuses_stale_edits() {
         let mut document = fixture();
