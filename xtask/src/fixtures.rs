@@ -9,12 +9,13 @@ use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref, Str, TextStr};
 /// Committed fixtures, by file name.
 type Fixture = (&'static str, fn() -> Vec<u8>);
 /// Byte-for-byte reproducible fixtures; the up-to-date test compares them with the generators.
-const FIXTURES: [Fixture; 5] = [
+const FIXTURES: [Fixture; 6] = [
     ("sample.pdf", sample_pdf),
     ("layout.pdf", layout_pdf),
     ("inherited.pdf", inherited_pdf),
     ("forms.pdf", forms_pdf),
     ("redact.pdf", redact_pdf),
+    ("edit.pdf", edit_pdf),
 ];
 /// Encrypted: the `/U` entry ends with arbitrary bytes, which `lopdf` draws at random.
 const PROTECTED: &str = "protected.pdf";
@@ -350,6 +351,141 @@ q 1 0 0 1 56 400 cm /Fm1 Do Q";
     bytes
 }
 
+
+/// One A4 page of text to edit, in five kinds of fonts. Lines, from the top:
+/// * `Hello world from Recto`, Helvetica 14 (not embedded, no `/Widths`), at (56, 760);
+/// * `[(Code ) -200 (1234) 50 ( end)] TJ`, Courier 12 with `/Widths`, at (56, 720);
+/// * `Embedded font line`, the generated test font as a simple TrueType font (WinAnsi), at (56, 680);
+/// * `Type zero text`, the same font as a Type0 font with Identity-H and a ToUnicode CMap holding
+///   only the characters used, as subset fonts do, at (56, 640);
+/// * `First` then `Second line` with the `'` operator, Helvetica 12, leading 20, from (56, 600);
+/// * `Split ` and `run` as two `Tj` on one line, Helvetica 12, at (56, 540).
+pub fn edit_pdf() -> Vec<u8> {
+    use lopdf::{Dictionary, Object, Stream};
+    use recto_core::testfont;
+
+    let name = |text: &str| Object::Name(text.as_bytes().to_vec());
+    let mut document = lopdf::Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let font_file = {
+        let mut stream = Stream::new(Dictionary::new(), testfont::font("RectoTest"));
+        stream.compress().expect("compressing a Vec");
+        document.add_object(stream)
+    };
+    let descriptor = |document: &mut lopdf::Document, base: &str| {
+        let mut descriptor = Dictionary::new();
+        descriptor.set("Type", name("FontDescriptor"));
+        descriptor.set("FontName", name(base));
+        descriptor.set("Flags", 32);
+        descriptor.set("FontBBox", Object::Array(vec![0.into(), (-200).into(), 600.into(), 800.into()]));
+        descriptor.set("ItalicAngle", 0);
+        descriptor.set("Ascent", 800);
+        descriptor.set("Descent", -200);
+        descriptor.set("CapHeight", 700);
+        descriptor.set("StemV", 80);
+        descriptor.set("FontFile2", Object::Reference(font_file));
+        document.add_object(descriptor)
+    };
+    let mut fonts = Dictionary::new();
+    for (key, base, widths) in [("F1", "Helvetica", false), ("F2", "Courier", true)] {
+        let mut font = Dictionary::new();
+        font.set("Type", name("Font"));
+        font.set("Subtype", name("Type1"));
+        font.set("BaseFont", name(base));
+        font.set("Encoding", name("WinAnsiEncoding"));
+        if widths {
+            font.set("FirstChar", 32);
+            font.set("LastChar", 126);
+            font.set("Widths", Object::Array(vec![Object::Integer(600); 95]));
+        }
+        fonts.set(key, Object::Reference(document.add_object(font)));
+    }
+    let simple_descriptor = descriptor(&mut document, "ABCDEF+RectoTest");
+    let mut simple = Dictionary::new();
+    simple.set("Type", name("Font"));
+    simple.set("Subtype", name("TrueType"));
+    simple.set("BaseFont", name("ABCDEF+RectoTest"));
+    simple.set("Encoding", name("WinAnsiEncoding"));
+    simple.set("FirstChar", 32);
+    simple.set("LastChar", 255);
+    let widths: Vec<Object> = (32..=255).map(|c| Object::Integer(if c == 32 { i64::from(testfont::SPACE_ADVANCE) } else { i64::from(testfont::ADVANCE) })).collect();
+    simple.set("Widths", Object::Array(widths));
+    simple.set("FontDescriptor", Object::Reference(simple_descriptor));
+    fonts.set("F3", Object::Reference(document.add_object(simple)));
+
+    // Glyph ids of the test font: 1 for the space, then its characters in order from 2.
+    let gid = |c: char| if c == ' ' { 1u16 } else { testfont::CHARS.chars().position(|x| x == c).expect("a test font character") as u16 + 2 };
+    let type0_text = "Type zero text";
+    let mut used: Vec<char> = type0_text.chars().collect();
+    used.sort_unstable();
+    used.dedup();
+    let mut cmap = String::from("/CIDInit /ProcSet findresource begin 12 dict begin begincmap\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n");
+    cmap.push_str(&format!("{} beginbfchar\n", used.len()));
+    for c in &used {
+        cmap.push_str(&format!("<{:04X}> <{:04X}>\n", gid(*c), *c as u32));
+    }
+    cmap.push_str("endbfchar\nendcmap CMapName currentdict /CMap defineresource pop end end\n");
+    let to_unicode = document.add_object(Stream::new(Dictionary::new(), cmap.into_bytes()));
+    let cid_descriptor = descriptor(&mut document, "GHIJKL+RectoTest");
+    let mut system = Dictionary::new();
+    system.set("Registry", Object::string_literal("Adobe"));
+    system.set("Ordering", Object::string_literal("Identity"));
+    system.set("Supplement", 0);
+    let mut cid = Dictionary::new();
+    cid.set("Type", name("Font"));
+    cid.set("Subtype", name("CIDFontType2"));
+    cid.set("BaseFont", name("GHIJKL+RectoTest"));
+    cid.set("CIDSystemInfo", Object::Dictionary(system));
+    cid.set("FontDescriptor", Object::Reference(cid_descriptor));
+    cid.set("DW", i64::from(testfont::ADVANCE));
+    cid.set("W", Object::Array(vec![1.into(), Object::Array(vec![i64::from(testfont::SPACE_ADVANCE).into()])]));
+    cid.set("CIDToGIDMap", name("Identity"));
+    let cid = document.add_object(cid);
+    let mut type0 = Dictionary::new();
+    type0.set("Type", name("Font"));
+    type0.set("Subtype", name("Type0"));
+    type0.set("BaseFont", name("GHIJKL+RectoTest"));
+    type0.set("Encoding", name("Identity-H"));
+    type0.set("DescendantFonts", Object::Array(vec![Object::Reference(cid)]));
+    type0.set("ToUnicode", Object::Reference(to_unicode));
+    fonts.set("F4", Object::Reference(document.add_object(type0)));
+
+    let type0_bytes: Vec<u8> = type0_text.chars().flat_map(|c| gid(c).to_be_bytes()).collect();
+    let mut content = b"BT /F1 14 Tf 56 760 Td (Hello world from Recto) Tj ET\n\
+BT /F2 12 Tf 56 720 Td [(Code ) -200 (1234) 50 ( end)] TJ ET\n\
+BT /F3 12 Tf 56 680 Td (Embedded font line) Tj ET\n\
+BT /F4 12 Tf 56 640 Td <"
+        .to_vec();
+    content.extend(type0_bytes.iter().map(|b| format!("{b:02X}")).collect::<String>().into_bytes());
+    content.extend_from_slice(
+        b"> Tj ET\n\
+BT /F1 12 Tf 20 TL 56 600 Td (First) Tj (Second line) ' ET\n\
+BT /F1 12 Tf 56 540 Td (Split ) Tj (run) Tj ET",
+    );
+    let content_id = document.add_object(Stream::new(Dictionary::new(), content));
+    let mut resources = Dictionary::new();
+    resources.set("Font", Object::Dictionary(fonts));
+    let mut page = Dictionary::new();
+    page.set("Type", name("Page"));
+    page.set("Parent", Object::Reference(pages_id));
+    page.set("MediaBox", Object::Array(vec![0.into(), 0.into(), 595.into(), 842.into()]));
+    page.set("Resources", Object::Dictionary(resources));
+    page.set("Contents", Object::Reference(content_id));
+    let page_id = document.add_object(page);
+    let mut pages = Dictionary::new();
+    pages.set("Type", name("Pages"));
+    pages.set("Kids", Object::Array(vec![Object::Reference(page_id)]));
+    pages.set("Count", 1);
+    document.objects.insert(pages_id, Object::Dictionary(pages));
+    let mut catalog = Dictionary::new();
+    catalog.set("Type", name("Catalog"));
+    catalog.set("Pages", Object::Reference(pages_id));
+    let catalog_id = document.add_object(catalog);
+    document.trailer.set("Root", Object::Reference(catalog_id));
+    let mut bytes = Vec::new();
+    document.save_to(&mut bytes).expect("writing to a Vec");
+    bytes
+}
 /// User password of `protected.pdf`.
 pub const PROTECTED_PASSWORD: &str = "recto";
 

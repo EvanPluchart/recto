@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use crate::PageId;
 use crate::geom::Size;
+use crate::embed::FontFile;
 use crate::op::{Op, PageState, replay};
 
 #[derive(Debug, thiserror::Error)]
@@ -52,6 +53,8 @@ pub struct Document {
     cursor: usize,
     /// Cursor at the last save (or at opening).
     saved_at: Option<usize>,
+    /// Fonts added for edited text, by `TextEdit::font`.
+    fonts: Vec<FontFile>,
     /// Encrypted with a user password (the empty one does not open it), not unlocked yet.
     needs_password: bool,
 }
@@ -84,6 +87,7 @@ impl Document {
             cursor: 0,
             saved_at: Some(0),
             needs_password,
+            fonts: Vec::new(),
         })
     }
 
@@ -161,6 +165,16 @@ impl Document {
         self.add_file(read(path.as_ref())?)
     }
 
+
+    /// Adds a font for edited text (see `textedit::TextEdit::font`); returns its id.
+    pub fn add_font(&mut self, font: FontFile) -> usize {
+        self.fonts.push(font);
+        self.fonts.len() - 1
+    }
+
+    pub fn fonts(&self) -> &[FontFile] {
+        &self.fonts
+    }
     /// Adds a blank page source and returns its page.
     pub fn add_blank(&mut self, size: Size) -> PageId {
         self.sources.push(Source::Blank { size });

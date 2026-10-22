@@ -26,6 +26,9 @@ thiserror = "2.0.21"
 pdf-writer = "0.15.0"
 image = { version = "0.25.10", default-features = false }
 getrandom = "0.4.3"
+ttf-parser = "0.25.1"
+subsetter = { version = "0.2.6", default-features = false }
+fontdb = "0.24.0"
 
 # OCR is unusably slow unoptimised, even in debug builds and tests.
 [profile.dev.package.ocrs]

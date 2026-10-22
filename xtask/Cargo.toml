@@ -10,6 +10,7 @@ publish = false
 anyhow.workspace = true
 flate2 = "1.1.10"
 lopdf.workspace = true
+recto-core.workspace = true
 pdf-writer.workspace = true
 tar = { version = "0.4.46", default-features = false }
 ureq = "3.5.0"

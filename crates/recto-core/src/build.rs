@@ -13,8 +13,9 @@ use lopdf::{Dictionary, Object, ObjectId};
 
 use crate::PageId;
 use crate::security::{Security, SecurityError};
+use crate::textedit::{EditError, TextEdit, TextRun};
 use crate::textlayer::TextLayer;
-use crate::{annot, compress, form, gray, redact, stamp, textlayer};
+use crate::{annot, compress, embed, form, gray, redact, stamp, textedit, textlayer};
 use crate::geom::{PageGeometry, Point, Rect};
 use crate::document::{Document, Source};
 use crate::op::{Op, PageState};
@@ -31,6 +32,8 @@ pub enum BuildError {
     NoPages,
     #[error(transparent)]
     Security(#[from] SecurityError),
+    #[error(transparent)]
+    Edit(#[from] EditError),
     #[error("cannot write the PDF: {0}")]
     Write(std::io::Error),
 }
@@ -183,6 +186,36 @@ impl Document {
                     }
                 }
                 _ => {}
+            }
+        }
+        // Edited text first: edits address the page's original content.
+        let edits: Vec<(PageId, &TextEdit)> = self
+            .ops()
+            .iter()
+            .filter_map(|op| match op {
+                Op::EditText { page, edit } if pages.iter().any(|state| state.id == *page) => Some((*page, edit)),
+                _ => None,
+            })
+            .collect();
+        if !edits.is_empty() {
+            let mut needed: HashMap<usize, Vec<char>> = HashMap::new();
+            for (_, edit) in &edits {
+                if let Some(font) = edit.font {
+                    needed.entry(font).or_default().extend(edit.text.chars());
+                }
+            }
+            let mut embedded = HashMap::new();
+            for (font, mut chars) in needed {
+                chars.sort_unstable();
+                chars.dedup();
+                let file = self.fonts().get(font).ok_or_else(|| EditError::Embed("unknown font".into()))?;
+                embedded.insert(font, embed::embed(&mut base, file, &chars).map_err(EditError::Embed)?);
+            }
+            for page in pages {
+                let here: Vec<&TextEdit> = edits.iter().filter(|(id, _)| *id == page.id).map(|(_, edit)| *edit).collect();
+                if let (false, Some(&id)) = (here.is_empty(), objects.get(&page.id)) {
+                    textedit::apply(&mut base, id, &here, &embedded)?;
+                }
             }
         }
         // Recognised text goes in before redaction, so redaction removes it too.
@@ -343,6 +376,24 @@ impl Document {
     /// How each current page is shown, read from the sources with `lopdf`.
     pub fn geometry(&self) -> Result<Vec<PageGeometry>, BuildError> {
         self.geometry_of(&self.pages())
+    }
+
+    /// The text runs of `page`, with the edits made so far.
+    pub fn text_runs(&self, page: PageId) -> Result<Vec<TextRun>, BuildError> {
+        let source = &self.sources()[page.source as usize];
+        let Source::File { .. } = source else { return Ok(Vec::new()) };
+        let document = load(source)?;
+        let id = *document.get_pages().values().nth(page.index as usize).ok_or(BuildError::MissingPage(page))?;
+        let mut runs = textedit::runs(&document, id);
+        for op in self.ops() {
+            if let Op::EditText { page: target, edit } = op
+                && *target == page
+                && let Some(run) = runs.iter_mut().find(|run| run.first == edit.first && run.last == edit.last)
+            {
+                run.text = edit.text.clone();
+            }
+        }
+        Ok(runs)
     }
 
     /// The crop area set on `page` by the latest `CropPages`, if any.

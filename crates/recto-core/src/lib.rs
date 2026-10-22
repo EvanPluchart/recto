@@ -5,7 +5,9 @@ pub mod annot;
 pub mod build;
 pub mod compress;
 pub mod content;
+pub mod embed;
 pub mod document;
+pub mod fonts;
 pub mod form;
 pub mod geom;
 pub mod gray;
@@ -18,7 +20,10 @@ pub mod security;
 pub mod split;
 pub mod stamp;
 pub mod text;
+pub mod textedit;
 pub mod textlayer;
+#[doc(hidden)]
+pub mod testfont;
 
 pub use build::{BuildError, BuildOptions};
 pub use document::{Document, OpenError, Source};

@@ -5,6 +5,7 @@ use crate::annot::Annotation;
 use crate::geom::Rect;
 use crate::meta::Metadata;
 use crate::stamp::Stamp;
+use crate::textedit::TextEdit;
 use crate::textlayer::TextLayer;
 
 /// Clockwise rotation in quarter turns.
@@ -47,6 +48,8 @@ pub enum Op {
     AddStamp(Stamp),
     /// Invisible text recognised on `page` (OCR).
     AddTextLayer { page: PageId, layer: TextLayer },
+    /// New text for a run of `page` (`textedit.rs`).
+    EditText { page: PageId, edit: TextEdit },
     /// Title, author, subject, keywords.
     SetMetadata(Metadata),
 }
@@ -92,6 +95,7 @@ pub fn replay(initial: &[PageId], ops: &[Op]) -> Vec<PageState> {
             | Op::CropPages { .. }
             | Op::AddStamp(_)
             | Op::AddTextLayer { .. }
+            | Op::EditText { .. }
             | Op::SetMetadata(_) => {}
         }
     }

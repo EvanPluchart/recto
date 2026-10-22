@@ -10,4 +10,6 @@ lopdf = { workspace = true }
 pdf-writer.workspace = true
 image = { workspace = true, features = ["jpeg"] }
 getrandom.workspace = true
+ttf-parser.workspace = true
+subsetter.workspace = true
 thiserror.workspace = true
