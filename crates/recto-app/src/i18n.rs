@@ -1,5 +1,6 @@
 //! UI strings. Source strings are English; `t` returns the translation for the current language.
-//! The language is `RECTO_LANG`, `LC_ALL` or `LANG` when set, else the system's; French or English.
+//! The language is `RECTO_LANG` when set (also `LC_ALL` or `LANG` outside Windows), else the
+//! system's; French or English.
 
 use std::sync::OnceLock;
 
@@ -257,7 +258,9 @@ fn lang() -> Lang {
     static LANG: OnceLock<Lang> = OnceLock::new();
     *LANG.get_or_init(|| {
         // An explicit setting first, then the system language.
-        let value = ["RECTO_LANG", "LC_ALL", "LANG"]
+        // On Windows, LANG and LC_ALL come from Unix-like shells (Git Bash), not from the system.
+        let keys: &[&str] = if cfg!(windows) { &["RECTO_LANG"] } else { &["RECTO_LANG", "LC_ALL", "LANG"] };
+        let value = keys
             .iter()
             .find_map(|key| std::env::var(key).ok().filter(|v| !v.is_empty()))
             .or_else(sys_locale::get_locale);
