@@ -1,6 +1,10 @@
 //! Recto binary: `recto [file.pdf] [--page=N] [--zoom=PCT] [--sidebar=thumbnails|outline] [--tool=NAME] [--find=TEXT] [--apply=EDITS] [--save-as=PATH] [--export=PATH [--compress] [--grayscale] [--flatten] [--password=PASS]] [--ocr] [--dark|--light]`.
 //! Opens one document in a continuous, zoomable page view.
 
+// Release builds on Windows are GUI programs: no console window opens with them. Debug builds
+// keep the console for logs (`RECTO_TIMING`, render errors).
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod i18n;
 mod recent;
 mod signatures;
