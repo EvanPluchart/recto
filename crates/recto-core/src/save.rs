@@ -7,12 +7,34 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// Writes `bytes` to a temporary file in `path`'s folder, flushes it to disk, then renames it
 /// over `path`. The rename replaces an existing file on every platform.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    write(path, bytes, true)
+}
+
+/// `write_atomic` for a file only its owner may read (saved signatures, recent files): on Unix
+/// it is left with mode 0600 whatever the file had before.
+pub fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    write(path, bytes, false)
+}
+
+#[cfg_attr(not(unix), allow(unused_variables))]
+fn write(path: &Path, bytes: &[u8], keep_permissions: bool) -> std::io::Result<()> {
     let temporary = temporary_path(path)?;
+    // A new file only: a name planted in a shared folder (a link to another file) is refused, and
+    // left alone.
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options.open(&temporary)?;
     let result = (|| {
-        let mut file = std::fs::File::create(&temporary)?;
         file.write_all(bytes)?;
         file.sync_all()?;
         drop(file);
+        // The replaced file keeps its permissions (on Windows the folder's ACL applies to both).
+        #[cfg(unix)]
+        if keep_permissions && let Ok(metadata) = std::fs::metadata(path) {
+            std::fs::set_permissions(&temporary, metadata.permissions())?;
+        }
         std::fs::rename(&temporary, path)
     })();
     if result.is_err() {

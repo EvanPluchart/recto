@@ -56,7 +56,7 @@ fn push(mut list: Vec<PathBuf>, path: PathBuf) -> Vec<PathBuf> {
 fn save(dir: &Path, list: &[PathBuf]) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     let text: String = list.iter().filter_map(|path| path.to_str()).map(|path| format!("{path}\n")).collect();
-    recto_core::save::write_atomic(&dir.join(FILE), text.as_bytes())
+    recto_core::save::write_private(&dir.join(FILE), text.as_bytes())
 }
 
 #[cfg(test)]

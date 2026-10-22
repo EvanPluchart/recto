@@ -127,7 +127,7 @@ pub fn remember(signature: Signature) -> Vec<Signature> {
 fn save(dir: &Path, list: &[Signature]) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     let text: String = list.iter().map(|signature| format_line(signature) + "\n").collect();
-    recto_core::save::write_atomic(&dir.join(FILE), text.as_bytes())
+    recto_core::save::write_private(&dir.join(FILE), text.as_bytes())
 }
 
 #[cfg(test)]
