@@ -30,6 +30,7 @@ pub struct SignatureDialog {
 
 impl Viewer {
     pub(super) fn open_signature_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        signatures::load_fonts(cx);
         let theme = self.theme;
         let typed = cx.new(|cx| TextInput::new(t("Your name"), |_| true, theme, cx));
         cx.subscribe_in(&typed, window, |viewer, _, event, window, cx| match event {

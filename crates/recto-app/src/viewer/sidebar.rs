@@ -18,7 +18,7 @@ const ROW: f32 = 196.0;
 const THUMB_WIDTH: f32 = 140.0;
 const THUMB_HEIGHT: f32 = 160.0;
 /// Thumbnails kept beyond the visible rows before being released.
-const KEEP_ROWS: usize = 40;
+const KEEP_ROWS: usize = 12;
 const OUTLINE_ROW: f32 = 28.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

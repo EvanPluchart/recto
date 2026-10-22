@@ -27,6 +27,18 @@ pub const STYLES: [(&str, &[u8]); 4] = [
 pub const INKS: [Color; 3] =
     [Color { r: 0.07, g: 0.07, b: 0.09 }, Color { r: 0.11, g: 0.17, b: 0.42 }, Color { r: 0.12, g: 0.31, b: 0.82 }];
 
+/// Registers the handwriting fonts with GPUI, once, the first time a preview needs them.
+pub fn load_fonts(cx: &mut gpui::App) {
+    static LOADED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if LOADED.swap(true, std::sync::atomic::Ordering::AcqRel) {
+        return;
+    }
+    let fonts = STYLES.iter().map(|(_, bytes)| std::borrow::Cow::Borrowed(*bytes)).collect();
+    if let Err(error) = cx.text_system().add_fonts(fonts) {
+        eprintln!("recto: cannot load the handwriting fonts: {error:#}");
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Signature {
     /// A name in one of the `STYLES`, in one of the `INKS`.

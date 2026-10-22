@@ -127,11 +127,6 @@ fn main() {
     let args = Args::parse(std::env::args().skip(1));
     Application::new().with_assets(assets::Assets).run(move |cx: &mut App| {
         viewer::bind_keys(cx);
-        // Handwriting fonts, to preview typed signatures.
-        let fonts = signatures::STYLES.iter().map(|(_, bytes)| std::borrow::Cow::Borrowed(*bytes)).collect();
-        if let Err(error) = cx.text_system().add_fonts(fonts) {
-            eprintln!("recto: cannot load the handwriting fonts: {error:#}");
-        }
         let bounds = Bounds::centered(None, size(px(900.), px(1000.)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),

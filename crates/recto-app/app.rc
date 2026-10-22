@@ -1,0 +1,26 @@
+1 ICON "assets/recto.ico"
+
+1 VERSIONINFO
+FILEVERSION 0,0,0,0
+PRODUCTVERSION 0,0,0,0
+FILEOS 0x4
+FILETYPE 0x1
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "FileDescription", "Recto"
+            VALUE "ProductName", "Recto"
+            VALUE "InternalName", "Recto"
+            VALUE "OriginalFilename", "recto.exe"
+            VALUE "FileVersion", "0.0.0.0"
+            VALUE "ProductVersion", "0.0.0.0"
+            VALUE "LegalCopyright", "MIT License - Evan Pluchart"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

@@ -75,9 +75,9 @@ const TOOL_BAR_HEIGHT: f32 = 40.0;
 /// Arrow-key scroll step, in logical pixels.
 const LINE: f32 = 48.0;
 /// Pages rendered beyond the viewport, in viewport heights, so scrolling finds them ready.
-const PRERENDER: f32 = 1.0;
+const PRERENDER: f32 = 0.5;
 /// Bitmaps kept around the visible pages before being released.
-const KEEP_PAGES: usize = 6;
+const KEEP_PAGES: usize = 2;
 /// Page texts kept when no search is open: beyond `MAX_TEXTS`, only those near the viewport stay.
 const MAX_TEXTS: usize = 200;
 const KEEP_TEXTS: usize = 20;

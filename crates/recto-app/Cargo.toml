@@ -15,7 +15,11 @@ recto-core.workspace = true
 recto-render.workspace = true
 recto-ocr.workspace = true
 fontdb.workspace = true
+sys-locale = "0.3.2"
 anyhow.workspace = true
 flume.workspace = true
 gpui.workspace = true
 image = { workspace = true, features = ["png", "jpeg"] }
+
+[build-dependencies]
+embed-resource = "3.0.12"

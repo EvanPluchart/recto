@@ -1,5 +1,5 @@
 //! UI strings. Source strings are English; `t` returns the translation for the current language.
-//! M0 detects French from `RECTO_LANG`, `LC_ALL` or `LANG`; system locale detection comes later.
+//! The language is `RECTO_LANG`, `LC_ALL` or `LANG` when set, else the system's; French or English.
 
 use std::sync::OnceLock;
 
@@ -256,7 +256,11 @@ const FR: &[(&str, &str)] = &[
 fn lang() -> Lang {
     static LANG: OnceLock<Lang> = OnceLock::new();
     *LANG.get_or_init(|| {
-        let value = ["RECTO_LANG", "LC_ALL", "LANG"].iter().find_map(|key| std::env::var(key).ok().filter(|v| !v.is_empty()));
+        // An explicit setting first, then the system language.
+        let value = ["RECTO_LANG", "LC_ALL", "LANG"]
+            .iter()
+            .find_map(|key| std::env::var(key).ok().filter(|v| !v.is_empty()))
+            .or_else(sys_locale::get_locale);
         match value {
             Some(v) if v.to_ascii_lowercase().starts_with("fr") => Lang::Fr,
             _ => Lang::En,
