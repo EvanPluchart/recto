@@ -1,5 +1,5 @@
 //! Files built into the binary: the Lucide icons (see `assets/NOTICE.md`), served to GPUI as
-//! `icons/NAME.svg`.
+//! `icons/NAME.svg`, and the app icon (`assets/brand/`) as `brand/app-icon.png`.
 
 use std::borrow::Cow;
 
@@ -64,10 +64,16 @@ icons![
     "zoom-out",
 ];
 
+/// The app icon, for the start screen (`brand/app-icon.png`).
+const APP_ICON: &[u8] = include_bytes!("../../../assets/brand/png/recto-app-icon-256.png");
+
 pub struct Assets;
 
 impl AssetSource for Assets {
     fn load(&self, path: &str) -> gpui::Result<Option<Cow<'static, [u8]>>> {
+        if path == "brand/app-icon.png" {
+            return Ok(Some(Cow::Borrowed(APP_ICON)));
+        }
         let name = path.strip_prefix("icons/").and_then(|file| file.strip_suffix(".svg"));
         Ok(name.and_then(|name| ICONS.iter().find(|(icon, _)| *icon == name)).map(|(_, bytes)| Cow::Borrowed(*bytes)))
     }

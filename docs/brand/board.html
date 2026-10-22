@@ -1,0 +1,57 @@
+<!doctype html><html lang="fr"><meta charset="utf-8"><title>Recto — identité</title>
+<style>
+:root{--ink:#1B1F3B;--paper:#FFF3E0;--fold:#FF6B35}
+body{margin:0;background:#ECEAE6;font-family:"Segoe UI",system-ui,sans-serif;color:#1B1F3B}
+section{margin:28px auto;width:1280px;border-radius:24px;background:#fff;padding:48px 56px;box-sizing:border-box}
+h2{margin:0 0 6px;font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:#8a8696}
+h1{margin:0;font-size:40px}
+p{color:#555;max-width:760px;line-height:1.5}
+.hero{background:var(--ink);color:var(--paper);display:flex;align-items:center;justify-content:space-between;height:420px}
+.hero p{color:#c9c6d6}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:24px}
+.cell{border-radius:16px;height:200px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;font-size:13px;color:#777}
+.sw{border-radius:16px;height:220px;padding:20px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-end;font-size:14px;line-height:1.6}
+.row{display:flex;gap:24px;align-items:center;margin-top:24px}
+.mock{border-radius:16px;background:#F4F3F0;padding:24px;box-sizing:border-box}
+.title{display:flex;align-items:center;gap:10px;background:#fff;border-radius:10px 10px 0 0;padding:10px 14px;font-size:13px;border:1px solid #e3e1dc}
+.tab{display:inline-flex;align-items:center;gap:8px;background:#fff;border-radius:10px 10px 0 0;padding:8px 14px;font-size:13px}
+.dont{border-radius:16px;background:#F4F3F0;height:170px;display:flex;align-items:center;justify-content:center;position:relative}
+.dont:after{content:"✕";position:absolute;top:10px;right:14px;color:#d33;font-weight:700}
+.cap{font-size:13px;color:#777;margin-top:8px}
+</style>
+<section class="hero"><div><h2 style="color:#8f8bb0">Identité</h2><h1 style="font-size:56px">Recto</h1><p>Le R plié : un R géométrique dont la jambe est le coin d’une page qui se replie. Le nom et le métier, en une forme.</p></div><img src="../../assets/brand/recto-horizontal-reversed.svg" width="560"></section>
+
+<section><h2>Logo</h2><h1>Déclinaisons</h1>
+<div class="grid">
+<div class="cell" style="background:#fff;border:1px solid #eee"><img src="../../assets/brand/recto-horizontal-color.svg" width="300">Horizontal, couleur</div>
+<div class="cell" style="background:var(--ink)"><img src="../../assets/brand/recto-horizontal-reversed.svg" width="300"><span style="color:#aaa">Horizontal, inversé</span></div>
+<div class="cell" style="background:var(--paper)"><img src="../../assets/brand/recto-stacked-color.svg" width="170">Empilé</div>
+<div class="cell" style="background:#fff;border:1px solid #eee"><img src="../../assets/brand/recto-horizontal-black.svg" width="300">Une couleur, noir</div>
+<div class="cell" style="background:#111"><img src="../../assets/brand/recto-horizontal-white.svg" width="300"><span style="color:#aaa">Une couleur, blanc</span></div>
+<div class="cell" style="background:#fff;border:1px solid #eee"><div style="display:flex;gap:18px;align-items:flex-end"><img src="../../assets/brand/recto-app-icon.svg" width="120"><img src="../../assets/brand/recto-app-icon.svg" width="48"><img src="../../assets/brand/recto-app-icon-small.svg" width="32"><img src="../../assets/brand/recto-app-icon-small.svg" width="16"></div>Icône d’app (16–32 px : version petite taille)</div>
+</div></section>
+
+<section><h2>Couleurs</h2><h1>Palette</h1><p>Trois couleurs, pas plus. L’encre porte la marque, le papier lui répond, l’orange ne sert qu’au pli et aux accents rares. Pas de rouge : c’est la couleur du reste de la catégorie.</p>
+<div class="grid">
+<div class="sw" style="background:var(--ink);color:var(--paper)"><b>Encre</b>#1B1F3B · RGB 27 31 59<br>CMJN ≈ 54 47 0 77</div>
+<div class="sw" style="background:var(--paper);border:1px solid #eee"><b>Papier</b>#FFF3E0 · RGB 255 243 224<br>CMJN ≈ 0 5 12 0</div>
+<div class="sw" style="background:var(--fold);color:#1B1F3B"><b>Pli</b>#FF6B35 · RGB 255 107 53<br>CMJN ≈ 0 58 79 0</div>
+</div><p class="cap">Contrastes : papier sur encre 15,9:1 ; pli sur encre 5,7:1 (texte possible) ; pli sur papier 2,6:1 (décor seulement, jamais de texte). Équivalents Pantone à valider sur nuancier.</p></section>
+
+<section><h2>Typographie</h2><h1>Logotype et texte</h1>
+<div class="row"><img src="../../assets/brand/recto-wordmark-ink.svg" width="420"><p>Le logotype est dessiné, pas composé : cercles de même rayon, fûts de même épaisseur, la même géométrie que le R. Il n’existe qu’en tracés (aucune police à installer).<br><br>Texte d’interface et documents : <b>Segoe UI</b> sous Windows, <b>SF Pro</b> sous macOS, <b>Inter</b> ailleurs — la police système, pour une app qui se fond dans chaque plateforme.</p></div></section>
+
+<section><h2>En situation</h2><h1>Maquettes</h1>
+<div class="grid">
+<div class="mock"><div class="title"><img src="../../assets/brand/recto-app-icon-small.svg" width="16">rapport.pdf — Recto</div><div style="background:#E8E9EC;height:120px;border:1px solid #e3e1dc;border-top:0"></div><div class="cap">Barre de titre</div></div>
+<div class="mock" style="background:#2b2b33;display:flex;gap:14px;align-items:center;justify-content:center;height:194px"><div style="width:56px;height:56px;border-radius:14px;background:#4a4a55"></div><img src="../../assets/brand/recto-app-icon.svg" width="64"><div style="width:56px;height:56px;border-radius:14px;background:#4a4a55"></div></div>
+<div class="mock"><div class="tab"><img src="../../assets/brand/recto-app-icon-small.svg" width="16">Recto — PDF hors ligne</div><div style="background:#fff;height:132px;display:flex;align-items:center;padding:0 20px"><img src="../../assets/brand/recto-horizontal-color.svg" width="150"></div><div class="cap">Onglet et en-tête du site</div></div>
+</div></section>
+
+<section><h2>Usage</h2><h1>Règles</h1><p><b>Zone de protection</b> : autour du logo, laisser au moins la largeur du fût du R. <b>Tailles minimales</b> : symbole 16 px (version petite taille sous 32 px), logo horizontal 96 px de large, empilé 64 px. <b>Fonds</b> : papier, blanc ou encre ; sur photo, l’icône d’app en tuile.</p>
+<div class="grid">
+<div class="dont"><img src="../../assets/brand/recto-horizontal-color.svg" width="240" style="transform:skewX(-14deg)"></div>
+<div class="dont" style="background:linear-gradient(90deg,#ff4d6d,#ffd166)"><img src="../../assets/brand/recto-horizontal-color.svg" width="240"></div>
+<div class="dont"><img src="../../assets/brand/recto-horizontal-color.svg" width="240" style="filter:hue-rotate(120deg)"></div>
+</div><p class="cap">À éviter : déformer ou incliner, poser sur un fond chargé ou peu contrasté, recolorer.</p></section>
+</html>

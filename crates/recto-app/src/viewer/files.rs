@@ -124,18 +124,7 @@ impl Viewer {
             .flex_col()
             .items_center()
             .gap(px(10.))
-            .child(
-                div()
-                    .flex_none()
-                    .w(px(64.))
-                    .h(px(64.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(16.))
-                    .bg(theme.active)
-                    .child(gpui::svg().path(crate::assets::icon("file-text")).size(px(32.)).text_color(theme.accent)),
-            )
+            .child(gpui::img("brand/app-icon.png").flex_none().size(px(72.)))
             .child(div().mt(px(6.)).text_2xl().font_weight(gpui::FontWeight::SEMIBOLD).text_color(theme.text).child(t("Recto")))
             .child(div().text_sm().text_color(theme.muted).child(t("Read, organize, annotate and sign PDF files, offline.")))
             .child(
