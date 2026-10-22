@@ -32,10 +32,14 @@ pub enum Tool {
     Freehand,
     Image,
     Signature,
+    /// Removes what lies under a dragged area.
+    Redact,
+    /// Shows only a dragged area of the page (or of the selected pages).
+    Crop,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 12] = [
+    pub const ALL: [Tool; 14] = [
         Tool::Select,
         Tool::Text,
         Tool::Highlight,
@@ -48,6 +52,8 @@ impl Tool {
         Tool::Freehand,
         Tool::Image,
         Tool::Signature,
+        Tool::Redact,
+        Tool::Crop,
     ];
 
     /// Name used by `--tool=NAME`.
@@ -65,6 +71,8 @@ impl Tool {
             Tool::Freehand => "freehand",
             Tool::Image => "image",
             Tool::Signature => "signature",
+            Tool::Redact => "redact",
+            Tool::Crop => "crop",
         }
     }
 
@@ -86,6 +94,8 @@ impl Tool {
             Tool::Freehand => "Draw",
             Tool::Image => "Image",
             Tool::Signature => "Sign",
+            Tool::Redact => "Redact",
+            Tool::Crop => "Crop",
         }
     }
 
@@ -253,6 +263,18 @@ impl Viewer {
         let (Some(&first), Some(&last)) = (points.first(), points.last()) else { return };
         let area = span(first, last);
         let tiny = area.width < 3.0 && area.height < 3.0;
+        if !tiny && matches!(self.tool, Tool::Redact | Tool::Crop) {
+            let area = geometry.rect_to_user(area);
+            let Some(id) = self.open().and_then(|open| open.page_states.get(page)).map(|state| state.id) else { return };
+            let op = if self.tool == Tool::Redact {
+                Op::Redact { page: id, area }
+            } else {
+                // The selected pages when the area is drawn on one of them, else this page.
+                let selected = self.target_pages();
+                Op::CropPages { pages: if selected.contains(&id) { selected } else { vec![id] }, area }
+            };
+            return self.edit(op, window, cx);
+        }
         let kind = match self.tool {
             Tool::Rectangle if !tiny => Kind::Rectangle { rect: geometry.rect_to_user(area) },
             Tool::Ellipse if !tiny => Kind::Ellipse { rect: geometry.rect_to_user(area) },
@@ -402,7 +424,9 @@ impl Viewer {
             .flex_none()
             .items_center()
             .gap(px(2.))
-            .h(px(34.))
+            .flex_wrap()
+            .min_h(px(34.))
+            .py(px(3.))
             .px(px(8.))
             .bg(theme.toolbar)
             .border_b_1()
@@ -492,6 +516,20 @@ impl Viewer {
                 move |bounds, _, window, _| {
                     let at = |p: Point| point(bounds.origin.x + px(p.x * zoom), bounds.origin.y + px(p.y * zoom));
                     let (Some(&first), Some(&last)) = (points.first(), points.last()) else { return };
+                    if matches!(tool, Tool::Redact | Tool::Crop) {
+                        let r = span(first, last);
+                        let mut fill = PathBuilder::fill();
+                        fill.move_to(at(Point { x: r.x, y: r.y }));
+                        fill.line_to(at(Point { x: r.right(), y: r.y }));
+                        fill.line_to(at(Point { x: r.right(), y: r.bottom() }));
+                        fill.line_to(at(Point { x: r.x, y: r.bottom() }));
+                        fill.close();
+                        let shade = if tool == Tool::Redact { gpui::rgba(0x0000_00aa) } else { gpui::rgba(0x2f6f_ef33) };
+                        if let Ok(path) = fill.build() {
+                            window.paint_path(path, shade);
+                        }
+                        return;
+                    }
                     let mut path = PathBuilder::stroke(px(width));
                     match tool {
                         Tool::Rectangle => {

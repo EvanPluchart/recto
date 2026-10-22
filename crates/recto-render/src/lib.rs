@@ -42,6 +42,8 @@ pub struct Tile {
 pub enum Purpose {
     Page,
     Thumbnail,
+    /// A page image for text recognition.
+    Ocr,
 }
 
 /// Premultiplied BGRA (the layout PDFium and GPUI both use), row-major, `width * 4` bytes per row.

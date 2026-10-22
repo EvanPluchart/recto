@@ -21,6 +21,7 @@ mod annotate;
 mod dialog;
 mod edit;
 mod forms;
+mod ocr;
 mod output;
 mod password;
 mod rail;
@@ -28,6 +29,7 @@ mod search;
 mod selection;
 mod sidebar;
 mod signature;
+mod tools;
 
 pub use self::sidebar::Tab;
 pub use self::edit::{EditSpec, parse_edits};
@@ -36,6 +38,8 @@ use self::annotate::{Inspector, Sketch, TextDraft};
 use self::dialog::{Dialog, DialogKind};
 use self::forms::FieldEditor;
 use self::signature::SignatureDialog;
+use self::ocr::OcrJob;
+use self::tools::{ToolDialog, ToolKind};
 use self::output::SplitMode;
 use self::password::Locked;
 use self::rail::RailSelection;
@@ -282,6 +286,11 @@ pub struct Viewer {
     build_version: u64,
     /// With `RECTO_TIMING` set: what is being timed (opening, an edit) and since when.
     timing: Option<(&'static str, std::time::Instant)>,
+    /// Watermark, page numbers, properties, export.
+    tool_dialog: Option<ToolDialog>,
+    /// Text recognition in progress, and the engine once loaded.
+    ocr: Option<OcrJob>,
+    ocr_engine: Option<Arc<recto_ocr::Engine>>,
 }
 
 impl Viewer {
@@ -328,6 +337,9 @@ impl Viewer {
             notice: None,
             build_version: 0,
             timing: None,
+            tool_dialog: None,
+            ocr: None,
+            ocr_engine: None,
         };
         // Focus first: a password prompt takes it over.
         window.focus(&viewer.focus);
@@ -338,7 +350,14 @@ impl Viewer {
             viewer.apply_specs(&args.apply, window, cx);
         }
         if let Some(path) = args.save_as {
-            viewer.write_document(path, false, window, cx);
+            viewer.write_document(path, None, window, cx);
+        }
+        if let Some(path) = args.export {
+            viewer.write_document(path, Some(args.export_options), window, cx);
+        }
+        if args.ocr {
+            let pages = viewer.page_order();
+            viewer.recognize(pages, window, cx);
         }
         if let Some(query) = args.find {
             viewer.preset_search(query, cx);
@@ -444,6 +463,16 @@ impl Viewer {
             }
             Response::Opened(Err(e)) => self.state = State::Error(failure("Cannot open the document", e)),
             Response::Text { index, result } => return self.receive_text(index, result, window, cx),
+            Response::Rendered { request, result } if request.purpose == Purpose::Ocr => {
+                return match result {
+                    Ok(bitmap) => self.receive_ocr_image(request.page, bitmap, window, cx),
+                    Err(error) => {
+                        self.ocr = None;
+                        self.notice = Some(failure("Text recognition failed", error));
+                        cx.notify();
+                    }
+                };
+            }
             Response::Rendered { request, result } if request.purpose == Purpose::Thumbnail => match result {
                 Ok(bitmap) => sidebar::store_thumbnail(open, request.index, bitmap, cx),
                 // A missing thumbnail is not worth an error: the page itself reports it.
@@ -954,12 +983,14 @@ impl Render for Viewer {
             .child(self.toolbar(cx))
             .children(self.page_tools(cx))
             .children(self.annotate_bar(cx))
+            .children(self.tools_bar(cx))
             .children(self.notice_bar(cx))
             .children(self.search_bar(cx))
             .child(div().flex().flex_1().min_h_0().children(self.sidebar(window, cx)).child(self.pages(window, cx)))
             .children(self.recent_menu(cx))
             .children(self.dialog_view(cx))
             .children(self.signature_view(cx))
+            .children(self.tool_view(cx))
     }
 }
 
@@ -987,7 +1018,9 @@ impl Viewer {
                 .flex_none()
                 .items_center()
                 .gap(px(2.))
-                .h(px(34.))
+                .flex_wrap()
+                .min_h(px(34.))
+                .py(px(3.))
                 .px(px(8.))
                 .bg(theme.toolbar)
                 .border_b_1()
@@ -1022,12 +1055,57 @@ impl Viewer {
                 .child(div().flex_1())
                 .child(button("save", "Save", open.document.is_modified()).on_click(cx.listener(|this, _, window, cx| this.save(window, cx))))
                 .child(button("save-as", "Save as…", true).on_click(cx.listener(|this, _, window, cx| this.save_as(window, cx))))
-                .when(!open.fields.is_empty(), |bar| {
-                    bar.child(
-                        button("save-flat", "Save flattened…", true)
-                            .on_click(cx.listener(|this, _, window, cx| this.save_flattened(window, cx))),
-                    )
-                })
+                .into_any_element(),
+        )
+    }
+
+    /// Fourth toolbar row: document tools.
+    fn tools_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let open = self.open()?;
+        open.info.as_ref()?;
+        let theme = self.theme;
+        let busy = self.ocr.is_some();
+        let button = |id: &'static str, label: &'static str, enabled: bool| {
+            div()
+                .id(id)
+                .px(px(8.))
+                .py(px(3.))
+                .rounded(px(4.))
+                .when(enabled, |b| b.cursor_pointer().hover(move |s| s.bg(theme.hover)))
+                .when(!enabled, |b| b.text_color(theme.muted))
+                .child(t(label))
+        };
+        let tool = |id: &'static str, label: &'static str, kind: ToolKind| {
+            button(id, label, true).on_click(cx.listener(move |this, _, window, cx| this.open_tool(kind, window, cx)))
+        };
+        Some(
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(2.))
+                .flex_wrap()
+                .min_h(px(34.))
+                .py(px(3.))
+                .px(px(8.))
+                .bg(theme.toolbar)
+                .border_b_1()
+                .border_color(theme.border)
+                .text_color(theme.text)
+                .text_sm()
+                .child(tool("watermark", "Watermark…", ToolKind::Watermark))
+                .child(tool("page-numbers", "Page numbers…", ToolKind::PageNumbers))
+                .child(tool("header-footer", "Header or footer…", ToolKind::HeaderFooter))
+                .child(tool("properties", "Properties…", ToolKind::Properties))
+                .child(div().w(px(1.)).h(px(18.)).mx(px(4.)).bg(theme.border))
+                .child(button("ocr", "Recognize text", !busy).on_click(cx.listener(|this, _, window, cx| {
+                    // The pages selected in the rail, else every page.
+                    let order = this.page_order();
+                    let selected = this.rail.in_order(&order);
+                    this.recognize(if selected.is_empty() { order } else { selected }, window, cx);
+                })))
+                .child(div().flex_1())
+                .child(tool("export", "Export…", ToolKind::Export))
                 .into_any_element(),
         )
     }

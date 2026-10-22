@@ -4565,6 +4565,7 @@ dependencies = [
  "gpui",
  "image",
  "recto-core",
+ "recto-ocr",
  "recto-render",
 ]
 

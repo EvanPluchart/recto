@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use gpui::{Context, PathPromptOptions, PromptLevel, Window};
-use recto_core::op::PageState;
+use recto_core::op::{Op, PageState};
 use recto_core::save::write_atomic;
 use recto_core::{BuildOptions, split};
 
@@ -21,6 +21,15 @@ pub enum SplitMode {
     Every,
     /// A file per top-level bookmark.
     Bookmarks,
+}
+
+/// `1.4 MB` style sizes.
+fn file_size(bytes: usize) -> String {
+    match bytes {
+        0..1_000 => format!("{bytes} B"),
+        1_000..1_000_000 => format!("{:.0} kB", bytes as f64 / 1e3),
+        _ => format!("{:.1} MB", bytes as f64 / 1e6),
+    }
 }
 
 /// `report-3.pdf` style names for split parts, next to each other in `folder`.
@@ -46,6 +55,37 @@ impl Viewer {
             .unwrap_or_default()
     }
 
+    /// Whether the document has redactions, which saving makes final.
+    fn has_redactions(&self) -> bool {
+        self.open().is_some_and(|open| open.document.ops().iter().any(|op| matches!(op, Op::Redact { .. })))
+    }
+
+    /// Runs `then` at once, or after the reader agrees, when the document has redactions: the
+    /// content under them is removed from the written file for good.
+    fn confirm_redactions(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        then: impl FnOnce(&mut Viewer, &mut Window, &mut Context<Viewer>) + 'static,
+    ) {
+        if !self.has_redactions() {
+            return then(self, window, cx);
+        }
+        let answer = window.prompt(
+            PromptLevel::Warning,
+            t("The content under the redactions will be removed from the file for good."),
+            None,
+            &[t("Continue"), t("Cancel")],
+            cx,
+        );
+        cx.spawn_in(window, async move |this, cx| {
+            if answer.await == Ok(0) {
+                this.update_in(cx, |viewer, window, cx| then(viewer, window, cx)).ok();
+            }
+        })
+        .detach();
+    }
+
     /// Ctrl+S: replaces the original file, after confirmation.
     pub(super) fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(open) = self.open() else { return };
@@ -53,7 +93,10 @@ impl Viewer {
         if !open.document.is_modified() {
             return;
         }
-        let detail = path.display().to_string();
+        let mut detail = path.display().to_string();
+        if self.has_redactions() {
+            detail = format!("{detail}\n\n{}", t("The content under the redactions will be removed from the file for good."));
+        }
         let answer = window.prompt(
             PromptLevel::Warning,
             t("Replace the original file with the edited document?"),
@@ -63,7 +106,7 @@ impl Viewer {
         );
         cx.spawn_in(window, async move |this, cx| {
             if answer.await == Ok(0) {
-                this.update_in(cx, |viewer, window, cx| viewer.write_document(path, false, window, cx)).ok();
+                this.update_in(cx, |viewer, window, cx| viewer.write_document(path, None, window, cx)).ok();
             }
         })
         .detach();
@@ -74,36 +117,56 @@ impl Viewer {
         if self.open().is_none() {
             return;
         }
-        let chosen = cx.prompt_for_new_path(&self.folder(), Some(&format!("{}.pdf", self.stem())));
-        cx.spawn_in(window, async move |this, cx| {
-            if let Ok(Ok(Some(path))) = chosen.await {
-                this.update_in(cx, |viewer, window, cx| viewer.write_document(path, false, window, cx)).ok();
-            }
-        })
-        .detach();
+        self.confirm_redactions(window, cx, |viewer, window, cx| {
+            let chosen = cx.prompt_for_new_path(&viewer.folder(), Some(&format!("{}.pdf", viewer.stem())));
+            cx.spawn_in(window, async move |this, cx| {
+                if let Ok(Ok(Some(path))) = chosen.await {
+                    this.update_in(cx, |viewer, window, cx| viewer.write_document(path, None, window, cx)).ok();
+                }
+            })
+            .detach();
+        });
+    }
+
+    /// Saves a copy built with `options` (export).
+    pub(super) fn export(&mut self, options: BuildOptions, window: &mut Window, cx: &mut Context<Self>) {
+        self.confirm_redactions(window, cx, move |viewer, window, cx| {
+            let chosen = cx.prompt_for_new_path(&viewer.folder(), Some(&format!("{}-export.pdf", viewer.stem())));
+            cx.spawn_in(window, async move |this, cx| {
+                if let Ok(Ok(Some(path))) = chosen.await {
+                    this.update_in(cx, |viewer, window, cx| viewer.write_document(path, Some(options), window, cx)).ok();
+                }
+            })
+            .detach();
+        });
     }
 
     /// Builds the document as it is now and writes it to `path`; the document then stands for
-    /// that file.
-    /// With `flatten`, writes a copy whose form is drawn into the pages: an export, so the
-    /// document keeps its own path and unsaved state.
-    pub(super) fn write_document(&mut self, path: PathBuf, flatten: bool, window: &mut Window, cx: &mut Context<Self>) {
+    /// that file. With `export` options, writes a copy built with them instead: the document
+    /// keeps its own path and unsaved state.
+    pub(super) fn write_document(&mut self, path: PathBuf, export: Option<BuildOptions>, window: &mut Window, cx: &mut Context<Self>) {
         let State::Open(open) = &self.state else { return };
         let snapshot = open.document.clone();
         let cursor = snapshot.cursor();
         let target = path.clone();
+        let exporting = export.is_some();
         let task = cx.background_executor().spawn(async move {
-            let bytes = snapshot.build_with(&BuildOptions { flatten_forms: flatten, ..BuildOptions::default() }).map_err(|error| error.to_string())?;
-            write_atomic(&target, &bytes).map_err(|error| error.to_string())
+            let bytes = snapshot.build_with(&export.unwrap_or_default()).map_err(|error| error.to_string())?;
+            write_atomic(&target, &bytes).map_err(|error| error.to_string())?;
+            Ok::<usize, String>(bytes.len())
         });
         cx.spawn_in(window, async move |this, cx| {
             let result = task.await;
             this.update_in(cx, |viewer, window, cx| {
                 match result {
-                    Ok(()) if flatten => {
-                        viewer.notice = Some(format!("{} {}", t("Flattened copy saved to"), path.display()).into());
+                    Ok(size) if exporting => {
+                        let original = viewer.open().map_or(0, |open| open.document.bytes().len());
+                        viewer.notice = Some(
+                            format!("{} {} ({}; {} {})", t("Exported to"), path.display(), file_size(size), t("opened file:"), file_size(original))
+                                .into(),
+                        );
                     }
-                    Ok(()) => {
+                    Ok(_) => {
                         if let State::Open(open) = &mut viewer.state {
                             open.document.mark_saved_at(cursor);
                             open.document.set_path(path.clone());
@@ -117,17 +180,6 @@ impl Viewer {
                 cx.notify();
             })
             .ok();
-        })
-        .detach();
-    }
-
-    /// Saves a copy with the form fields drawn into the pages.
-    pub(super) fn save_flattened(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let chosen = cx.prompt_for_new_path(&self.folder(), Some(&format!("{}-flat.pdf", self.stem())));
-        cx.spawn_in(window, async move |this, cx| {
-            if let Ok(Ok(Some(path))) = chosen.await {
-                this.update_in(cx, |viewer, window, cx| viewer.write_document(path, true, window, cx)).ok();
-            }
         })
         .detach();
     }

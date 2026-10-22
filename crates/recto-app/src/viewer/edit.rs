@@ -8,7 +8,9 @@ use std::sync::Arc;
 use gpui::{Context, PathPromptOptions, Window};
 use recto_core::annot::{Annotation, Color, Font, Kind};
 use recto_core::geom::{PageRect, Point, Size};
+use recto_core::meta::Metadata;
 use recto_core::op::{Op, PageState, Rotation};
+use recto_core::stamp::{Position, Stamp};
 use recto_core::{BuildError, PageId};
 use recto_render::DocInfo;
 
@@ -33,11 +35,16 @@ pub enum EditSpec {
     Draw { tool: Tool, page: usize, points: Vec<Point>, text: String },
     /// A form field value.
     Fill { name: String, value: String },
+    /// Text stamped on every page (watermark, numbers, header, footer).
+    Stamp(Stamp),
+    /// The document title.
+    Title(String),
 }
 
 /// `rotate:2,delete:3,move:4>1,blank:0,undo`, and annotations in displayed page points:
 /// `rectangle:P:X:Y:W:H`, `ellipse:…`, `highlight:P:X:Y:W:H`, `arrow:P:X1:Y1:X2:Y2`,
-/// `line:…`, `freehand:P:X:Y:X:Y…`, `text:P:X:Y:TEXT`, and `fill:NAME=VALUE`.
+/// `line:…`, `freehand:P:X:Y:X:Y…`, `text:P:X:Y:TEXT`, `redact:P:X:Y:W:H`, `crop:P:X:Y:W:H`;
+/// `fill:NAME=VALUE`, `watermark:TEXT`, `numbers`, `header:TEXT`, `footer:TEXT`, `title:TEXT`.
 pub fn parse_edits(spec: &str) -> Result<Vec<EditSpec>, String> {
     let number = |text: &str| text.trim().parse::<usize>().map_err(|_| format!("not a page number: {text}"));
     let coordinate = |text: &str| text.trim().parse::<f32>().map_err(|_| format!("not a coordinate: {text}"));
@@ -50,6 +57,14 @@ pub fn parse_edits(spec: &str) -> Result<Vec<EditSpec>, String> {
                 "delete" => Ok(EditSpec::Delete(number(value)?)),
                 "blank" => Ok(EditSpec::Blank(number(value)?)),
                 "undo" => Ok(EditSpec::Undo),
+                "watermark" => Ok(EditSpec::Stamp(Stamp::watermark(value))),
+                "numbers" => Ok(EditSpec::Stamp(Stamp::page_numbers())),
+                "header" | "footer" => Ok(EditSpec::Stamp(Stamp {
+                    text: value.to_owned(),
+                    position: if name.trim() == "header" { Position::TopCenter } else { Position::BottomCenter },
+                    ..Stamp::page_numbers()
+                })),
+                "title" => Ok(EditSpec::Title(value.to_owned())),
                 "move" => {
                     let (page, before) = value.split_once('>').ok_or_else(|| format!("expected move:N>M, got {part}"))?;
                     Ok(EditSpec::Move { page: number(page)?, before: number(before)? })
@@ -74,7 +89,7 @@ pub fn parse_edits(spec: &str) -> Result<Vec<EditSpec>, String> {
                     let numbers = fields.map(coordinate).collect::<Result<Vec<f32>, _>>()?;
                     let points: Vec<Point> = match tool {
                         // X:Y:W:H → two corners.
-                        Tool::Rectangle | Tool::Ellipse | Tool::Highlight | Tool::Underline | Tool::StrikeOut
+                        Tool::Rectangle | Tool::Ellipse | Tool::Highlight | Tool::Underline | Tool::StrikeOut | Tool::Redact | Tool::Crop
                             if numbers.len() == 4 =>
                         {
                             vec![Point { x: numbers[0], y: numbers[1] }, Point { x: numbers[0] + numbers[2], y: numbers[1] + numbers[3] }]
@@ -246,6 +261,11 @@ impl Viewer {
                 EditSpec::Undo => {
                     document.undo();
                 }
+                EditSpec::Stamp(ref stamp) => document.apply(Op::AddStamp(stamp.clone())),
+                EditSpec::Title(ref title) => {
+                    let metadata = document.metadata().unwrap_or_default();
+                    document.apply(Op::SetMetadata(Metadata { title: title.clone(), ..metadata }));
+                }
                 EditSpec::Fill { ref name, ref value } => {
                     document.apply(Op::FillField { name: name.clone(), value: value.clone() });
                 }
@@ -260,6 +280,15 @@ impl Viewer {
                     let area = |a: Point, b: Point| {
                         page.rect_to_user(PageRect { x: a.x.min(b.x), y: a.y.min(b.y), width: (a.x - b.x).abs(), height: (a.y - b.y).abs() })
                     };
+                    if matches!(tool, Tool::Redact | Tool::Crop) {
+                        let rect = area(points[0], points[1]);
+                        document.apply(if tool == Tool::Redact {
+                            Op::Redact { page: state.id, area: rect }
+                        } else {
+                            Op::CropPages { pages: vec![state.id], area: rect }
+                        });
+                        continue;
+                    }
                     let kind = match tool {
                         Tool::Rectangle => Kind::Rectangle { rect: area(points[0], points[1]) },
                         Tool::Ellipse => Kind::Ellipse { rect: area(points[0], points[1]) },
@@ -329,6 +358,7 @@ impl Viewer {
                     open.document.undo();
                 }
                 self.notice = Some(failure("Cannot apply the change", error));
+                self.ocr_resume(window, cx);
                 self.update_title(window);
                 cx.notify();
             }
@@ -401,6 +431,7 @@ impl Viewer {
             Err(message) => self.state = State::Error(message),
         }
         self.update_title(window);
+        self.ocr_resume(window, cx);
         cx.notify();
     }
 
@@ -425,6 +456,17 @@ impl Viewer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_document_tools() {
+        let specs = parse_edits("redact:1:10:20:30:40,crop:2:0:0:100:50,watermark:DRAFT,numbers,footer:p. {page},title:Report").unwrap();
+        assert!(matches!(&specs[0], EditSpec::Draw { tool: Tool::Redact, page: 1, points, .. } if points[1] == Point { x: 40.0, y: 60.0 }));
+        assert!(matches!(&specs[1], EditSpec::Draw { tool: Tool::Crop, page: 2, .. }));
+        assert!(matches!(&specs[2], EditSpec::Stamp(stamp) if stamp.text == "DRAFT" && stamp.position == Position::Center));
+        assert!(matches!(&specs[3], EditSpec::Stamp(stamp) if stamp.is_numbered()));
+        assert!(matches!(&specs[4], EditSpec::Stamp(stamp) if stamp.text == "p. {page}" && stamp.position == Position::BottomCenter));
+        assert_eq!(specs[5], EditSpec::Title("Report".into()));
+    }
 
     #[test]
     fn parses_edit_specs() {

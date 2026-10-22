@@ -1,4 +1,4 @@
-//! Recto binary: `recto [file.pdf] [--page=N] [--zoom=PCT] [--sidebar=thumbnails|outline] [--tool=NAME] [--find=TEXT] [--apply=EDITS] [--save-as=PATH] [--dark|--light]`.
+//! Recto binary: `recto [file.pdf] [--page=N] [--zoom=PCT] [--sidebar=thumbnails|outline] [--tool=NAME] [--find=TEXT] [--apply=EDITS] [--save-as=PATH] [--export=PATH [--compress] [--grayscale] [--flatten] [--password=PASS]] [--ocr] [--dark|--light]`.
 //! Opens one document in a continuous, zoomable page view.
 
 mod i18n;
@@ -12,10 +12,13 @@ use std::path::PathBuf;
 
 use gpui::{App, AppContext, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions, px, size};
 
+use recto_core::BuildOptions;
+use recto_core::security::{Allowed, Protection, Security};
+
 use crate::i18n::t;
 use crate::viewer::{EditSpec, Tab, Tool, Viewer, parse_edits};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Args {
     pub file: Option<PathBuf>,
     /// 1-based, as typed by the user.
@@ -34,11 +37,17 @@ pub struct Args {
     pub save_as: Option<PathBuf>,
     /// Tool selected at start (`--tool=NAME`).
     pub tool: Option<Tool>,
+    /// Recognizes the text of every page at start (`--ocr`).
+    pub ocr: bool,
+    /// Exports a copy there at start (`--export=PATH`), with `--compress`, `--grayscale`,
+    /// `--flatten` and `--password=PASS`.
+    pub export: Option<PathBuf>,
+    pub export_options: BuildOptions,
 }
 
 impl Args {
     fn parse(args: impl IntoIterator<Item = String>) -> Self {
-        let mut parsed = Args { file: None, page: 1, zoom: None, dark: None, sidebar: None, find: None, apply: Vec::new(), save_as: None, tool: None };
+        let mut parsed = Args { page: 1, ..Args::default() };
         for arg in args {
             if let Some(n) = arg.strip_prefix("--page=") {
                 parsed.page = n.parse().ok().filter(|&n| n >= 1).unwrap_or(1);
@@ -57,6 +66,22 @@ impl Args {
                 parsed.save_as = Some(PathBuf::from(path));
             } else if let Some(query) = arg.strip_prefix("--find=") {
                 parsed.find = Some(query.to_owned());
+            } else if let Some(path) = arg.strip_prefix("--export=") {
+                parsed.export = Some(PathBuf::from(path));
+            } else if arg == "--compress" {
+                parsed.export_options.compress = true;
+            } else if arg == "--grayscale" {
+                parsed.export_options.grayscale = true;
+            } else if arg == "--flatten" {
+                parsed.export_options.flatten_forms = true;
+            } else if let Some(password) = arg.strip_prefix("--password=") {
+                parsed.export_options.security = Security::Protect(Protection {
+                    user_password: password.to_owned(),
+                    owner_password: String::new(),
+                    allowed: Allowed::default(),
+                });
+            } else if arg == "--ocr" {
+                parsed.ocr = true;
             } else if arg == "--dark" {
                 parsed.dark = Some(true);
             } else if arg == "--light" {
@@ -108,13 +133,21 @@ mod tests {
     fn parses_test_flags() {
         let args = parse("a.pdf --page=3 --zoom=150 --dark --sidebar=outline");
         let expected =
-            Args { file: Some("a.pdf".into()), page: 3, zoom: Some(150.0), dark: Some(true), sidebar: Some(Tab::Outline), find: None, apply: Vec::new(), save_as: None, tool: None };
+            Args { file: Some("a.pdf".into()), page: 3, zoom: Some(150.0), dark: Some(true), sidebar: Some(Tab::Outline), ..Args::default() };
         assert_eq!(args, expected);
+    }
+
+    #[test]
+    fn parses_export_flags() {
+        let args = parse("a.pdf --export=out.pdf --compress --grayscale --password=secret --ocr");
+        assert_eq!(args.export, Some(PathBuf::from("out.pdf")));
+        assert!(args.ocr && args.export_options.compress && args.export_options.grayscale && !args.export_options.flatten_forms);
+        assert!(matches!(&args.export_options.security, Security::Protect(protection) if protection.user_password == "secret"));
     }
 
     #[test]
     fn falls_back_on_bad_values() {
         let args = parse("--page=0 --zoom=abc --light");
-        assert_eq!(args, Args { file: None, page: 1, zoom: None, dark: Some(false), sidebar: None, find: None, apply: Vec::new(), save_as: None, tool: None });
+        assert_eq!(args, Args { page: 1, dark: Some(false), ..Args::default() });
     }
 }
