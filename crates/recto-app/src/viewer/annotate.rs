@@ -171,6 +171,7 @@ impl Viewer {
         self.sketch = None;
         self.text_draft = None;
         self.edit_draft = None;
+        self.picked = None;
         if tool != Tool::Signature {
             self.signature = None;
         }
@@ -201,6 +202,9 @@ impl Viewer {
     }
 
     pub(super) fn on_pointer_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.pick_at(event, cx) {
+            return;
+        }
         if self.tool.selects_text() {
             return self.on_select_start(event, window, cx);
         }
@@ -222,6 +226,9 @@ impl Viewer {
     }
 
     pub(super) fn on_pointer_move(&mut self, event: &MouseMoveEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.pick_move(event, cx) {
+            return;
+        }
         let Some(sketch) = &self.sketch else { return self.on_select_move(event, window, cx) };
         if event.pressed_button != Some(MouseButton::Left) {
             return self.finish_sketch(window, cx);
@@ -255,6 +262,9 @@ impl Viewer {
     }
 
     pub(super) fn on_pointer_up(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.pick_release(window, cx) {
+            return;
+        }
         if self.sketch.is_some() {
             return self.finish_sketch(window, cx);
         }

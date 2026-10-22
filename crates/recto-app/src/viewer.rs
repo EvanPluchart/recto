@@ -23,6 +23,7 @@ mod dialog;
 mod edit;
 mod forms;
 mod ocr;
+mod pick;
 mod output;
 mod password;
 mod rail;
@@ -43,6 +44,7 @@ use self::forms::FieldEditor;
 use self::signature::SignatureDialog;
 
 use self::ocr::OcrJob;
+use self::pick::Picked;
 use self::textedit::EditDraft;
 use self::tools::{ToolDialog, ToolKind};
 use self::output::SplitMode;
@@ -303,6 +305,8 @@ pub struct Viewer {
     menu_closed: Option<(MenuKind, std::time::Instant)>,
     /// Edit mode: tools, page operations and document tools are shown. Documents open read-only.
     editing: bool,
+    /// The annotation picked with the Select tool in edit mode.
+    picked: Option<Picked>,
     /// Text recognition in progress, and the engine once loaded.
     ocr: Option<OcrJob>,
     ocr_engine: Option<Arc<recto_ocr::Engine>>,
@@ -356,6 +360,7 @@ impl Viewer {
             edit_draft: None,
             menu: args.menu,
             menu_closed: None,
+            picked: None,
             editing: args.edit || args.tool.is_some() || !args.apply.is_empty() || args.menu.is_some() || args.dialog.is_some(),
             ocr: None,
             ocr_engine: None,
@@ -865,6 +870,7 @@ impl Viewer {
             content = content.children(self.form_overlay(index, (page.x, page.y), zoom, cx));
             content = content.children(self.tool_overlay(index, (page.x, page.y, page.width, page.height), zoom));
             content = content.children(self.text_edit_overlay(index, (page.x, page.y, page.width, page.height), zoom));
+            content = content.children(self.pick_overlay(index, (page.x, page.y, page.width, page.height), zoom));
         }
         div()
             .id("pages")
@@ -926,6 +932,7 @@ impl Render for Viewer {
             .on_action(cx.listener(|this, _: &CloseMenu, _, cx| {
                 this.menu = None;
                 this.recent_menu = false;
+                this.picked = None;
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &Undo, window, cx| this.undo(window, cx)))
@@ -934,7 +941,12 @@ impl Render for Viewer {
             .on_action(cx.listener(|this, _: &SaveAs, window, cx| this.save_as(window, cx)))
             .on_action(cx.listener(|this, _: &RotateLeft, window, cx| if this.editing { this.rotate(Rotation::R270, window, cx) }))
             .on_action(cx.listener(|this, _: &RotateRight, window, cx| if this.editing { this.rotate(Rotation::R90, window, cx) }))
-            .on_action(cx.listener(|this, _: &DeletePages, window, cx| if this.editing { this.delete_pages(window, cx) }))
+            .on_action(cx.listener(|this, _: &DeletePages, window, cx| {
+                // Delete removes the picked annotation first, else the selected pages.
+                if this.editing && !this.delete_picked(window, cx) {
+                    this.delete_pages(window, cx)
+                }
+            }))
             .on_action(cx.listener(|this, _: &InsertBlank, window, cx| if this.editing { this.insert_blank(window, cx) }))
             .on_action(cx.listener(|this, _: &InsertFile, window, cx| if this.editing { this.prompt_insert_files(window, cx) }))
             .on_action(cx.listener(|this, _: &Extract, window, cx| this.open_dialog(DialogKind::Extract, window, cx)))

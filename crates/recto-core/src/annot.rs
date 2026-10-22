@@ -177,6 +177,48 @@ impl Annotation {
         }
     }
 
+    /// The box the annotation's geometry spans, without stroke margins: what moving and
+    /// resizing act on.
+    pub fn frame(&self) -> Rect {
+        match &self.kind {
+            Kind::Text { rect, .. } | Kind::Image { rect, .. } | Kind::Rectangle { rect } | Kind::Ellipse { rect } => *rect,
+            Kind::Line { from, to, .. } => bounds([*from, *to], 0.0),
+            Kind::Ink { strokes } => bounds(strokes.iter().flatten().copied(), 0.0),
+            Kind::Highlight { quads } | Kind::Underline { quads } | Kind::StrikeOut { quads } => {
+                bounds(quads.iter().flat_map(corners), 0.0)
+            }
+        }
+    }
+
+    /// The annotation moved and stretched so that its `frame` becomes `to`. Text keeps its size
+    /// unless the box changes height.
+    pub fn mapped(&self, to: Rect) -> Annotation {
+        let from = self.frame();
+        let sx = if from.width.abs() > 1e-3 { to.width / from.width } else { 1.0 };
+        let sy = if from.height.abs() > 1e-3 { to.height / from.height } else { 1.0 };
+        let point = |p: Point| Point { x: to.origin.x + (p.x - from.origin.x) * sx, y: to.origin.y + (p.y - from.origin.y) * sy };
+        let rect = |r: Rect| {
+            let a = point(r.origin);
+            Rect { origin: a, width: r.width * sx, height: r.height * sy }
+        };
+        let kind = match &self.kind {
+            Kind::Text { rect: r, text, size, font, upright } => {
+                // The text grows with the box's side that runs across its lines.
+                let across = if upright % 180 == 90 { sx } else { sy };
+                Kind::Text { rect: rect(*r), text: text.clone(), size: (size * across).max(4.0), font: *font, upright: *upright }
+            }
+            Kind::Image { rect: r, image, upright } => Kind::Image { rect: rect(*r), image: image.clone(), upright: *upright },
+            Kind::Rectangle { rect: r } => Kind::Rectangle { rect: rect(*r) },
+            Kind::Ellipse { rect: r } => Kind::Ellipse { rect: rect(*r) },
+            Kind::Line { from, to, arrow } => Kind::Line { from: point(*from), to: point(*to), arrow: *arrow },
+            Kind::Ink { strokes } => Kind::Ink { strokes: strokes.iter().map(|stroke| stroke.iter().map(|p| point(*p)).collect()).collect() },
+            Kind::Highlight { quads } => Kind::Highlight { quads: quads.iter().map(|q| rect(*q)).collect() },
+            Kind::Underline { quads } => Kind::Underline { quads: quads.iter().map(|q| rect(*q)).collect() },
+            Kind::StrikeOut { quads } => Kind::StrikeOut { quads: quads.iter().map(|q| rect(*q)).collect() },
+        };
+        Annotation { kind, color: self.color, width: self.width }
+    }
+
     /// Adds the annotation and its appearance to `document`, for the page `page`; returns its id.
     pub fn write(&self, document: &mut lopdf::Document, page: ObjectId, serial: usize) -> ObjectId {
         let rect = self.rect();

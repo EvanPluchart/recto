@@ -37,7 +37,7 @@ Legend: milestone where it lands, or `later` / `no`.
 
 | Area | Feature | Status |
 |---|---|---|
-| Annotate | Select, move, resize, delete annotations after they are made | missing (only undo) |
+| Annotate | Select, move, resize, delete annotations after they are made | done for annotations made in Recto (Select tool, edit mode); not for those already in the file |
 | Edit | Whiteout (cover in white) | missing (redaction paints black) |
 | Edit | Delete an existing image | missing |
 | Sign | Several handwriting styles and ink colours, signature from an image | missing (one typed style, black) |

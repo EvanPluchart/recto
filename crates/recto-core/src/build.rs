@@ -19,6 +19,7 @@ use crate::{annot, compress, embed, form, gray, redact, stamp, textedit, textlay
 use crate::geom::{PageGeometry, Point, Rect};
 use crate::document::{Document, Source};
 use crate::op::{Op, PageState};
+use crate::annot::Annotation;
 use crate::meta::Metadata;
 use crate::stamp::Stamp;
 
@@ -175,8 +176,11 @@ impl Document {
             let Some(&id) = objects.get(page) else { continue };
             match op {
                 Op::AddAnnotation { annotation, .. } => {
-                    let written = annotation.write(&mut base, id, serial);
-                    annot::attach(&mut base, id, written)?;
+                    // As moved, resized or deleted since.
+                    if let Some(annotation) = self.current_annotation(self.op_ids()[serial], annotation) {
+                        let written = annotation.write(&mut base, id, serial);
+                        annot::attach(&mut base, id, written)?;
+                    }
                 }
                 Op::Redact { area, .. } => {
                     redact::remove_annotations(&mut base, id, &[*area])?;
@@ -376,6 +380,35 @@ impl Document {
     /// How each current page is shown, read from the sources with `lopdf`.
     pub fn geometry(&self) -> Result<Vec<PageGeometry>, BuildError> {
         self.geometry_of(&self.pages())
+    }
+
+    /// The annotation added by the op with id `id` (as `added`), as it is now: updated, or
+    /// `None` once deleted.
+    pub fn current_annotation(&self, id: u64, added: &Annotation) -> Option<Annotation> {
+        let mut current = Some(added.clone());
+        for op in self.ops() {
+            match op {
+                Op::UpdateAnnotation { target, annotation } if *target == id => current = Some(annotation.clone()),
+                Op::DeleteAnnotation { target } if *target == id => current = None,
+                _ => {}
+            }
+        }
+        current
+    }
+
+    /// The annotations Recto added to `page`, as they are now, with the id of the op that added
+    /// each one (what `UpdateAnnotation` and `DeleteAnnotation` refer to). In drawing order.
+    pub fn annotations(&self, page: PageId) -> Vec<(u64, Annotation)> {
+        self.ops()
+            .iter()
+            .zip(self.op_ids())
+            .filter_map(|(op, &id)| match op {
+                Op::AddAnnotation { page: target, annotation } if *target == page => {
+                    self.current_annotation(id, annotation).map(|annotation| (id, annotation))
+                }
+                _ => None,
+            })
+            .collect()
     }
 
     /// Whether `text` can replace `run` of `page` in the run's own font (else the edit needs a
@@ -749,6 +782,41 @@ mod tests {
         let normal = open("sample.pdf").build_pages(&document.pages()).unwrap();
         assert!(compressed.len() <= normal.len(), "{} > {}", compressed.len(), normal.len());
         assert!(titles(&reopen(&compressed, None))[2].starts_with("Recto sample, page 3"));
+    }
+
+    #[test]
+    fn annotations_move_resize_and_delete() {
+        use crate::annot::{Annotation, Color, Kind};
+        let rect = |x, y, width, height| Rect { origin: Point { x, y }, width, height };
+        let mut document = open("sample.pdf");
+        let square = Annotation { kind: Kind::Rectangle { rect: rect(100.0, 100.0, 50.0, 40.0) }, color: Color::RED, width: 2.0 };
+        let ink = Annotation {
+            kind: Kind::Ink { strokes: vec![vec![Point { x: 10.0, y: 10.0 }, Point { x: 30.0, y: 50.0 }]] },
+            color: Color::BLUE,
+            width: 2.0,
+        };
+        document.apply(Op::AddAnnotation { page: id(0), annotation: square.clone() });
+        document.apply(Op::AddAnnotation { page: id(0), annotation: ink.clone() });
+        let ids: Vec<u64> = document.annotations(id(0)).into_iter().map(|(id, _)| id).collect();
+        assert_eq!(ids.len(), 2);
+        let moved = square.mapped(rect(200.0, 300.0, 100.0, 40.0));
+        assert_eq!(moved.kind, Kind::Rectangle { rect: rect(200.0, 300.0, 100.0, 40.0) });
+        document.apply(Op::UpdateAnnotation { target: ids[0], annotation: moved });
+        document.apply(Op::DeleteAnnotation { target: ids[1] });
+        let now = document.annotations(id(0));
+        assert_eq!(now.len(), 1);
+        assert_eq!(now[0].1.frame(), rect(200.0, 300.0, 100.0, 40.0));
+
+        let bytes = document.build().unwrap();
+        let reopened = lopdf::Document::load_mem(&bytes).unwrap();
+        let page = *reopened.get_pages().values().next().unwrap();
+        let annots = reopened.get_page_annotations(page).unwrap();
+        assert_eq!(annots.len(), 1);
+        let numbers: Vec<f32> = annots[0].get(b"Rect").unwrap().as_array().unwrap().iter().map(|v| v.as_float().unwrap()).collect();
+        assert_eq!(numbers, vec![200.0, 300.0, 300.0, 340.0]);
+        // Undo brings the deleted one back.
+        document.undo();
+        assert_eq!(document.annotations(id(0)).len(), 2);
     }
     #[test]
     fn subsets_and_errors() {

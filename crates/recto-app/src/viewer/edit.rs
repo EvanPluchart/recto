@@ -223,6 +223,7 @@ impl Viewer {
     }
 
     pub(super) fn undo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.picked = None;
         if let State::Open(open) = &mut self.state
             && open.document.undo()
         {
@@ -231,6 +232,7 @@ impl Viewer {
     }
 
     pub(super) fn redo(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.picked = None;
         if let State::Open(open) = &mut self.state
             && open.document.redo()
         {

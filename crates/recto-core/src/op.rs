@@ -38,6 +38,10 @@ pub enum Op {
     InsertPages { pages: Vec<PageId>, at: usize },
     /// A new annotation on `page`, in the page's user space.
     AddAnnotation { page: PageId, annotation: Annotation },
+    /// Replaces the annotation added by the op with id `target` (see `Document::op_ids`).
+    UpdateAnnotation { target: u64, annotation: Annotation },
+    /// Removes the annotation added by the op with id `target`.
+    DeleteAnnotation { target: u64 },
     /// Sets the value of the form field named `name` (see `form::FormField::value`).
     FillField { name: String, value: String },
     /// Removes what lies under `area` on `page` (see `redact.rs`) and paints it black.
@@ -91,6 +95,8 @@ pub fn replay(initial: &[PageId], ops: &[Op]) -> Vec<PageState> {
             }
             Op::AddAnnotation { .. }
             | Op::FillField { .. }
+            | Op::UpdateAnnotation { .. }
+            | Op::DeleteAnnotation { .. }
             | Op::Redact { .. }
             | Op::CropPages { .. }
             | Op::AddStamp(_)
