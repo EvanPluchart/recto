@@ -266,8 +266,8 @@ impl Viewer {
                             .size(px(16.))
                             .rounded(px(8.))
                             .bg(gpui::Rgba { r: color.r, g: color.g, b: color.b, a: 1.0 })
-                            .border_2()
-                            .border_color(if active { theme.highlight } else { theme.toolbar }),
+                            .when(active, |b| b.border_2().border_color(theme.highlight))
+                            .when(!active, |b| b.border_1().border_color(theme.input_border)),
                     )
                     .on_click(cx.listener(move |viewer, _, _, cx| {
                         viewer.inspector.color = color;

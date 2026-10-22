@@ -44,4 +44,4 @@ Not cleared as a trademark: run a professional search before registering. The Wi
 
 ## In the app
 
-`crates/recto-app/src/theme.rs` maps the palette onto the interface. Light theme: warm Paper-tinted surfaces, Ink text and main button, Fold (darkened to `#E4561F` for contrast on light surfaces) for the current tool, tab, selection and check boxes. Dark theme: Ink surfaces, Paper text, Fold for what is active and for the main button, with Ink text on it.
+`crates/recto-app/src/theme.rs` maps the palette onto the interface. Light theme: warm Paper-tinted surfaces, Ink text and main button, Fold (darkened to `#C84716` for contrast on light surfaces) for the current tool, tab, selection and check boxes. Dark theme: Ink surfaces, Paper text, Fold for what is active and for the main button, with Ink text on it.

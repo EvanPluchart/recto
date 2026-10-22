@@ -193,7 +193,7 @@ impl Render for TextInput {
             .px(px(6.))
             .rounded(px(4.))
             .border_1()
-            .border_color(if focused { theme.accent } else { theme.border })
+            .border_color(if focused { theme.accent } else { theme.input_border })
             .bg(theme.field)
             .overflow_hidden();
         if buffer.text.is_empty() && !focused {

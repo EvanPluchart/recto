@@ -388,7 +388,7 @@ impl Viewer {
                             .justify_center()
                             .rounded(px(4.))
                             .border_1()
-                            .border_color(if on { theme.highlight } else { theme.muted })
+                            .border_color(if on { theme.highlight } else { theme.input_border })
                             .when(on, |b| b.bg(theme.highlight).child(gpui::svg().path(crate::assets::icon("check")).size(px(12.)).text_color(theme.on_accent))),
                     )
                     .child(t(flag.label()))

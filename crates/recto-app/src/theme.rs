@@ -11,6 +11,8 @@ pub struct Theme {
     /// Sidebar and menus.
     pub panel: Rgba,
     pub border: Rgba,
+    /// Outline of text fields and check boxes: 3:1 against their background (WCAG 1.4.11).
+    pub input_border: Rgba,
     /// Lines between groups of controls.
     pub separator: Rgba,
     pub text: Rgba,
@@ -53,11 +55,12 @@ impl Theme {
                 toolbar: rgb(0x1b1f3b),
                 panel: rgb(0x171a33),
                 border: rgb(0x2a2f55),
+                input_border: rgb(0x6b7099),
                 separator: rgb(0x343a66),
                 text: rgb(0xfff3e0),
                 muted: rgb(0xa9a6bf),
                 icon: rgb(0xdcd8e8),
-                disabled: rgb(0x575c82),
+                disabled: rgb(0x666b92),
                 hover: rgb(0x262b4e),
                 active: rgba(0xff6b3529),
                 highlight: rgb(0xff6b35),
@@ -81,15 +84,16 @@ impl Theme {
                 toolbar: rgb(0xfdfbf7),
                 panel: rgb(0xf6f3ed),
                 border: rgb(0xe4dfd6),
+                input_border: rgb(0x8a8696),
                 separator: rgb(0xe6e1d8),
                 text: rgb(0x1b1f3b),
-                muted: rgb(0x6f6c7d),
+                muted: rgb(0x615e70),
                 icon: rgb(0x3a3e5c),
-                disabled: rgb(0xb8b5c0),
+                disabled: rgb(0xa19eab),
                 hover: rgb(0xf0ece4),
                 active: rgba(0xff6b3524),
-                // Darker than Fold so active icons stand out on light surfaces.
-                highlight: rgb(0xe4561f),
+                // Fold darkened so active icons reach 4:1 on light surfaces and on their tint.
+                highlight: rgb(0xc84716),
                 placeholder: rgb(0xffffff),
                 field: rgb(0xffffff),
                 accent: rgb(0x1b1f3b),
