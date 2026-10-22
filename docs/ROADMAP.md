@@ -44,13 +44,16 @@ Each milestone ends with something you can run and show. Estimates are evenings 
 
 **Status (2026-10-22):** every annotation kind round-trips (`recto-core` tests read back `/Subtype`, `/Rect`, `/QuadPoints`, `/InkList` and the appearance) and PDFium draws each one where it was placed (`recto-render/tests/annotations.rs` checks pixels, including upright text on a `/Rotate 90` page). Form fields are read, filled, and flattened, checked the same two ways on `tests/fixtures/forms.pdf`. Screenshots on Windows through `--apply` (shapes, arrow, freehand, text, highlight, filled form). Not hand-checked: drawing with the mouse, the text editor, image and signature placement, the signature pad, clicking form fields. Known limits: annotations cannot be moved or deleted after creation except by undo; text annotations and typed signatures use base-14 fonts (Latin-1 only); generated field appearances are plain (no comb or multi-line wrapping); form JavaScript is not run.
 
-## M4 — Tools (3–4 weeks)
+## M4 — Tools (3–4 weeks) — implemented, not hand-checked
 
 * Compress (image downsampling + stream recompression), grayscale.
 * Watermark, page numbers, headers and footers.
 * Protect (password, permissions) and unlock.
 * Redact (true content removal), metadata editor.
-* OCR with `ocrs`, producing an invisible text layer.
+* OCR with `ocrs`, producing an invisible text layer (decision 0004, proposed).
+* Crop pages.
+
+**Status (2026-10-22):** every tool round-trips in `recto-core` tests and is checked with PDFium in `recto-render/tests/` (`redaction.rs`, `stamps.rs`, `output.rs`) and `recto-ocr/tests/scan.rs`. Redaction is tested on `tests/fixtures/redact.pdf`: no marked token is left in any string or stream of the output (text, kerned text, alternate text, image pixels, inline image, form XObject, annotation), the words after a removed one keep their PDFium boxes, and a form shared with another page is copied, not changed. OCR is tested by scanning a fixture page through PDFium and checking the text layer lands on the scanned words and stays invisible. Screenshots on Windows: redaction, watermark, OCR then search on a scan. Not hand-checked: the tool forms and the export dialog, dragging redaction and crop areas, macOS/Linux. Known limits: redaction removes vector paths only when they lie entirely inside an area (crossing paths are covered by the black box), removes whole strings when a font's code lengths are unknown, and drops the document's structure tree; grayscale leaves shadings and spot colors in color; compression skips JPEG 2000, JBIG2, CCITT and CMYK JPEG images; OCR recognises ASCII only (no accents) and needs its models (`cargo xtask fetch-ocr-models`); stamps and the text layer use Helvetica (Latin-1); XMP metadata is dropped when properties are edited. Resizing pages moved to "later".
 
 ## M5 — Edit existing text (1–2 months)
 

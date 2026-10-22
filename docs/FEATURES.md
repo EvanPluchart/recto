@@ -12,7 +12,8 @@ Legend: milestone where it lands, or `later` / `no`.
 | Organize | Split (range, every N, by bookmark, by size) | M2 | lopdf |
 | Organize | Reorder, rotate, delete, extract, insert blank | M2 | lopdf |
 | Organize | Alternate and mix (interleave two scans) | later | lopdf |
-| Organize | Crop, resize pages | M4 | lopdf |
+| Organize | Crop pages | M4 | lopdf |
+| Organize | Resize pages | later | lopdf |
 | Annotate | Text, images, shapes, freehand | M3 | lopdf + pdf-writer |
 | Annotate | Highlight, underline, strikeout | M3 | lopdf |
 | Annotate | Sign (drawn, typed, image) | M3 | lopdf + pdf-writer |
@@ -25,7 +26,8 @@ Legend: milestone where it lands, or `later` / `no`.
 | Tools | Bates numbering | later | pdf-writer |
 | Security | Protect, unlock | M4 | lopdf |
 | Security | Redact | M4 | lopdf (content removal) |
-| Text | OCR | M4 | ocrs |
+| Tools | Document properties (metadata) | M4 | lopdf |
+| Text | OCR | M4 | ocrs, in recto-ocr (decision 0004) |
 | Edit | Edit existing text | M5 | lopdf + font subsetting |
 | Convert | PDF to images, images to PDF | later | PDFium / pdf-writer |
 | Convert | PDF to Word / Excel | no | out of scope |
