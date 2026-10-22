@@ -111,7 +111,7 @@ impl Tool {
     pub fn label(self) -> &'static str {
         match self {
             Tool::Select => "Select",
-            Tool::Text => "Text",
+            Tool::Text => "Add text",
             Tool::Highlight => "Highlight",
             Tool::Underline => "Underline",
             Tool::StrikeOut => "Strike out",
@@ -130,7 +130,7 @@ impl Tool {
             Tool::Erase => "Erase",
             Tool::DeleteImage => "Delete an image",
             Tool::Crop => "Crop",
-            Tool::EditText => "Edit text (beta)",
+            Tool::EditText => "Edit the PDF text (beta)",
         }
     }
 
@@ -153,7 +153,7 @@ pub struct Inspector {
 
 impl Default for Inspector {
     fn default() -> Self {
-        Self { color: Color::RED, width: 2.5, size: 14.0 }
+        Self { color: Color::BLACK, width: 2.5, size: 14.0 }
     }
 }
 
@@ -199,6 +199,11 @@ pub fn load_raster(path: &std::path::Path) -> Result<Raster, String> {
 
 impl Viewer {
     pub(super) fn set_tool(&mut self, tool: Tool, cx: &mut Context<Self>) {
+        // Choosing Sign again forgets the signature in hand: the next click on the page offers the
+        // choice again.
+        if tool == Tool::Signature && self.tool == Tool::Signature {
+            self.signature = None;
+        }
         self.tool = tool;
         self.sketch = None;
         self.text_draft = None;

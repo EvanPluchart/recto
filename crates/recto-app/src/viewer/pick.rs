@@ -2,7 +2,7 @@
 //! moves it, dragging a corner handle resizes it, Delete removes it.
 
 use gpui::{AnyElement, Context, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Styled, Window, div, px};
-use recto_core::annot::{Annotation, Kind};
+use recto_core::annot::{Annotation, Color, Kind};
 use recto_core::geom::{PageRect, Point};
 use recto_core::op::Op;
 
@@ -158,6 +158,25 @@ impl Viewer {
         let target = picked.id;
         self.edit(Op::UpdateAnnotation { target, annotation: moved }, window, cx);
         true
+    }
+
+    /// The colour and line width of the picked annotation, shown as the tool bar's choice.
+    pub(super) fn picked_style(&self) -> Option<(Color, f32)> {
+        self.picked.as_ref().map(|picked| (picked.annotation.color, picked.annotation.width))
+    }
+
+    /// Gives the picked annotation `color` and/or line `width`, as chosen in the tool bar.
+    pub(super) fn restyle_picked(&mut self, color: Option<Color>, width: Option<f32>, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(picked) = self.picked.as_mut() else { return };
+        let mut annotation = picked.annotation.clone();
+        annotation.color = color.unwrap_or(annotation.color);
+        annotation.width = width.unwrap_or(annotation.width);
+        if annotation == picked.annotation {
+            return;
+        }
+        picked.annotation = annotation.clone();
+        let target = picked.id;
+        self.edit(Op::UpdateAnnotation { target, annotation }, window, cx);
     }
 
     /// Deletes the picked annotation; returns whether there was one.

@@ -93,8 +93,13 @@ impl Viewer {
         if !open.document.is_modified() {
             return;
         }
+        // Asked once per file: later saves of the same file go ahead, unless redactions are pending.
+        let redactions = self.has_redactions();
+        if !redactions && self.replace_agreed.as_deref() == Some(path.as_path()) {
+            return self.write_document(path, None, window, cx);
+        }
         let mut detail = path.display().to_string();
-        if self.has_redactions() {
+        if redactions {
             detail = format!("{detail}\n\n{}", t("The content under the redactions will be removed from the file for good."));
         }
         let answer = window.prompt(
@@ -106,7 +111,11 @@ impl Viewer {
         );
         cx.spawn_in(window, async move |this, cx| {
             if answer.await == Ok(0) {
-                this.update_in(cx, |viewer, window, cx| viewer.write_document(path, None, window, cx)).ok();
+                this.update_in(cx, |viewer, window, cx| {
+                    viewer.replace_agreed = Some(path.clone());
+                    viewer.write_document(path, None, window, cx)
+                })
+                .ok();
             }
         })
         .detach();

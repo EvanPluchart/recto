@@ -9,6 +9,7 @@ use gpui::{
 
 use recto_core::Document;
 
+use super::annotate::Tool;
 use super::password::Locked;
 use super::{State, Viewer, failure};
 use crate::i18n::t;
@@ -30,6 +31,7 @@ impl Viewer {
     /// Replaces the current document with the one at `path`, showing page `page` (1-based).
     pub(super) fn replace_document(&mut self, path: PathBuf, page: usize, window: &mut Window, cx: &mut Context<Self>) {
         self.time("open");
+        let switching = !matches!(self.state, State::Empty);
         // Dropping the previous document stops its render thread before the next one starts.
         self.state = State::Empty;
         self.selection = None;
@@ -37,6 +39,16 @@ impl Viewer {
         self.notice = None;
         self.dialog = None;
         self.recent_menu = false;
+        // Another document opens for reading, with nothing left over from the previous one: a draft
+        // or a picked annotation would land on the new pages, OCR words too. (At launch, the
+        // command line chose the mode and tool.)
+        if switching {
+            self.editing = false;
+            self.set_tool(Tool::Select, cx);
+            self.tool_dialog = None;
+            self.menu = None;
+            self.ocr = None;
+        }
         self.search.restart();
         self.sidebar.forget_followed();
         self.set_scroll_position(recto_core::geom::Point { x: 0.0, y: 0.0 });

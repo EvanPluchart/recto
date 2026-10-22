@@ -8,6 +8,7 @@ use recto_core::geom::{Point, Rect};
 use recto_core::op::Op;
 use recto_core::textedit::{TextEdit, TextRun};
 
+use super::annotate::Tool;
 use super::{State, Viewer, failure};
 use crate::fontmatch;
 use crate::i18n::t;
@@ -38,6 +39,8 @@ impl Viewer {
         cx.spawn_in(window, async move |this, cx| {
             let runs = task.await;
             this.update_in(cx, |viewer, window, cx| match runs {
+                // The reader moved on (another tool, page order or document) while the page was read.
+                _ if viewer.tool != Tool::EditText || viewer.open().and_then(|open| open.page_states.get(page)).map(|state| state.id) != Some(id) => {}
                 Ok(runs) => {
                     let hit = runs.iter().find(|run| contains(&run.bounds, point, 0.0)).or_else(|| runs.iter().find(|run| contains(&run.bounds, point, 3.0)));
                     match hit {
@@ -46,7 +49,10 @@ impl Viewer {
                             viewer.notice = Some(t("This text cannot be edited: its font does not say which characters it shows.").into());
                             cx.notify();
                         }
-                        None => {}
+                        None => {
+                            viewer.notice = Some(t("No text here: click on a line of the page to change it.").into());
+                            cx.notify();
+                        }
                     }
                 }
                 Err(error) => {

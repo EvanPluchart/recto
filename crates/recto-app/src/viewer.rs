@@ -326,6 +326,8 @@ pub struct Viewer {
     show_annotations: bool,
     /// Text recognition in progress, and the engine once loaded.
     ocr: Option<OcrJob>,
+    /// The file the reader agreed to replace on Save; not asked again for it.
+    replace_agreed: Option<std::path::PathBuf>,
     ocr_engine: Option<Arc<recto_ocr::Engine>>,
 }
 
@@ -380,6 +382,7 @@ impl Viewer {
             show_annotations: !args.hide_annotations,
             editing: args.edit || args.replace.is_some() || args.tool.is_some() || !args.apply.is_empty() || args.menu.is_some() || args.dialog.is_some(),
             ocr: None,
+            replace_agreed: None,
             ocr_engine: None,
         };
         // Focus first: a password prompt takes it over.
@@ -745,7 +748,7 @@ impl Viewer {
         let visible = layout.visible(top, viewport.height);
         let wanted = layout.visible(top - PRERENDER * viewport.height, viewport.height * (1.0 + 2.0 * PRERENDER));
         let distance = |i: usize| if i < visible.start { visible.start - i } else { i + 1 - visible.end };
-        let mut nearby: Vec<usize> = wanted.filter(|i| !visible.contains(i)).collect();
+        let mut nearby: Vec<usize> = wanted.clone().filter(|i| !visible.contains(i)).collect();
         nearby.sort_by_key(|&i| distance(i));
         for index in visible.clone().chain(nearby) {
             let scale = open.page_scale(index);
@@ -796,8 +799,10 @@ impl Viewer {
             }
         }
 
-        // Release bitmaps far from the viewport, from the GPU atlas too.
-        let keep = visible.start.saturating_sub(KEEP_PAGES)..visible.end + KEEP_PAGES;
+        // Release bitmaps far from the viewport, from the GPU atlas too. Counted from the pages
+        // requested above, or a page shorter than the prerender margin is dropped and asked again
+        // for ever.
+        let keep = wanted.start.saturating_sub(KEEP_PAGES)..wanted.end + KEEP_PAGES;
         let far: Vec<usize> = open.pages.keys().copied().filter(|i| !keep.contains(i)).collect();
         for index in far {
             if let Some(old) = open.pages.remove(&index) {
@@ -966,9 +971,15 @@ impl Render for Viewer {
             .on_action(cx.listener(|this, _: &LastPage, window, cx| this.go_to_page(usize::MAX, window, cx)))
             .on_action(cx.listener(|this, _: &OpenFile, window, cx| this.prompt_open(window, cx)))
             .on_action(cx.listener(|this, _: &CloseMenu, _, cx| {
-                this.menu = None;
-                this.recent_menu = false;
-                this.picked = None;
+                // Escape undoes one layer: an open menu or a pick, else a drawing in progress and the
+                // tool (an armed signature too), back to Select.
+                if this.menu.is_some() || this.recent_menu || this.picked.is_some() {
+                    this.menu = None;
+                    this.recent_menu = false;
+                    this.picked = None;
+                } else if this.tool != Tool::Select || this.sketch.is_some() {
+                    this.set_tool(Tool::Select, cx);
+                }
                 cx.notify();
             }))
             .on_action(cx.listener(|this, _: &Undo, window, cx| this.undo(window, cx)))
@@ -978,8 +989,9 @@ impl Render for Viewer {
             .on_action(cx.listener(|this, _: &RotateLeft, window, cx| if this.editing { this.rotate(Rotation::R270, window, cx) }))
             .on_action(cx.listener(|this, _: &RotateRight, window, cx| if this.editing { this.rotate(Rotation::R90, window, cx) }))
             .on_action(cx.listener(|this, _: &DeletePages, window, cx| {
-                // Delete removes the picked annotation first, else the selected pages.
-                if this.editing && !this.delete_picked(window, cx) {
+                // Delete removes the picked annotation, else the pages selected in the rail; never the
+                // current page by surprise (the Pages menu does that).
+                if this.editing && !this.delete_picked(window, cx) && !this.rail.in_order(&this.page_order()).is_empty() {
                     this.delete_pages(window, cx)
                 }
             }))

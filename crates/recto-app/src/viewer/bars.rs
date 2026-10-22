@@ -37,10 +37,10 @@ impl MenuKind {
 /// Groups of the tool bar.
 const TOOL_GROUPS: [&[Tool]; 5] = [
     &[Tool::Select],
-    &[Tool::Text, Tool::Highlight, Tool::Underline, Tool::StrikeOut],
+    &[Tool::Text, Tool::EditText, Tool::Highlight, Tool::Underline, Tool::StrikeOut],
     &[Tool::Rectangle, Tool::Ellipse, Tool::Line, Tool::Arrow, Tool::Freehand, Tool::Marker],
     &[Tool::Image, Tool::Signature, Tool::Stamp, Tool::Link, Tool::Form],
-    &[Tool::Redact, Tool::Erase, Tool::DeleteImage, Tool::Crop, Tool::EditText],
+    &[Tool::Redact, Tool::Erase, Tool::DeleteImage, Tool::Crop],
 ];
 
 fn tool_icon(tool: Tool) -> &'static str {
@@ -287,7 +287,7 @@ impl Viewer {
         }
         bar = bar.child(div().flex_1());
         for (n, color) in COLORS.into_iter().enumerate() {
-            let active = self.inspector.color == color;
+            let active = self.picked_style().map_or(self.inspector.color, |style| style.0) == color;
             bar = bar.child(
                 div()
                     .id(("color", n))
@@ -307,15 +307,16 @@ impl Viewer {
                             .when(active, |b| b.border_2().border_color(theme.highlight))
                             .when(!active, |b| b.border_1().border_color(theme.input_border)),
                     )
-                    .on_click(cx.listener(move |viewer, _, _, cx| {
+                    .on_click(cx.listener(move |viewer, _, window, cx| {
                         viewer.inspector.color = color;
+                        viewer.restyle_picked(Some(color), None, window, cx);
                         cx.notify();
                     })),
             );
         }
         bar = bar.child(separator(theme));
         for (n, width) in WIDTHS.into_iter().enumerate() {
-            let active = self.inspector.width == width;
+            let active = self.picked_style().map_or(self.inspector.width, |style| style.1) == width;
             bar = bar.child(
                 div()
                     .id(("width", n))
@@ -330,8 +331,9 @@ impl Viewer {
                     .hover(move |s| s.bg(theme.hover))
                     .tooltip(crate::chrome::tooltip("Line width", theme))
                     .child(div().w(px(14.)).h(px(width.max(1.0))).rounded(px(1.)).bg(if active { theme.highlight } else { theme.icon }))
-                    .on_click(cx.listener(move |viewer, _, _, cx| {
+                    .on_click(cx.listener(move |viewer, _, window, cx| {
                         viewer.inspector.width = width;
+                        viewer.restyle_picked(None, Some(width), window, cx);
                         cx.notify();
                     })),
             );
