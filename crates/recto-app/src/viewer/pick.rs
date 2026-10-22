@@ -2,7 +2,7 @@
 //! moves it, dragging a corner handle resizes it, Delete removes it.
 
 use gpui::{AnyElement, Context, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Styled, Window, div, px};
-use recto_core::annot::Annotation;
+use recto_core::annot::{Annotation, Kind};
 use recto_core::geom::{PageRect, Point};
 use recto_core::op::Op;
 
@@ -58,9 +58,24 @@ fn dragged(rect: PageRect, grip: Grip, from: Point, to: Point) -> PageRect {
 }
 
 impl Viewer {
+    /// The topmost annotation made in Recto under displayed point `at` of page `page`.
+    pub(super) fn annotation_at(&self, page: usize, at: Point) -> Option<(u64, Annotation)> {
+        let geometry = self.open()?.geometry.get(page).copied()?;
+        let id = self.open()?.page_states.get(page)?.id;
+        let point = geometry.to_user(at);
+        let annotations = self.open()?.document.annotations(id);
+        annotations.into_iter().rev().find(|(_, annotation)| {
+            let frame = annotation.frame();
+            point.x >= frame.origin.x - SLOP
+                && point.x <= frame.origin.x + frame.width + SLOP
+                && point.y >= frame.origin.y - SLOP
+                && point.y <= frame.origin.y + frame.height + SLOP
+        })
+    }
+
     /// Picks the annotation under the pointer, or starts dragging the picked one. Returns
     /// whether the click was used.
-    pub(super) fn pick_at(&mut self, event: &MouseDownEvent, cx: &mut Context<Self>) -> bool {
+    pub(super) fn pick_at(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) -> bool {
         if !self.editing || self.tool != Tool::Select {
             return false;
         }
@@ -87,18 +102,13 @@ impl Viewer {
                 return true;
             }
         }
-        let Some(id) = self.open().and_then(|open| open.page_states.get(page)).map(|state| state.id) else { return false };
-        let point = geometry.to_user(at);
-        let annotations = self.open().map(|open| open.document.annotations(id)).unwrap_or_default();
-        // The topmost one under the pointer.
-        let hit = annotations.into_iter().rev().find(|(_, annotation)| {
-            let frame = annotation.frame();
-            point.x >= frame.origin.x - SLOP
-                && point.x <= frame.origin.x + frame.width + SLOP
-                && point.y >= frame.origin.y - SLOP
-                && point.y <= frame.origin.y + frame.height + SLOP
-        });
-        match hit {
+        match self.annotation_at(page, at) {
+            // A double click on a text box edits its text.
+            Some((id, annotation)) if event.click_count >= 2 && matches!(annotation.kind, Kind::Text { .. }) => {
+                self.picked = None;
+                self.edit_text_annotation(page, id, annotation, window, cx);
+                true
+            }
             Some((id, annotation)) => {
                 self.picked = Some(Picked { page, id, annotation, drag: Some((Grip::Move, at, at)) });
                 self.selection = None;

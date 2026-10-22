@@ -168,6 +168,8 @@ pub struct TextDraft {
     page: usize,
     at: Point,
     input: Entity<TextInput>,
+    /// The text box being changed, when editing one made earlier.
+    target: Option<(u64, Annotation)>,
 }
 
 fn rgb(color: Color) -> gpui::Rgba {
@@ -232,7 +234,7 @@ impl Viewer {
     }
 
     pub(super) fn on_pointer_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        if self.pick_at(event, cx) || (self.tool == Tool::Select && self.follow_link(event, window, cx)) {
+        if self.pick_at(event, window, cx) || (self.tool == Tool::Select && self.follow_link(event, window, cx)) {
             return;
         }
         if self.tool.selects_text() {
@@ -241,7 +243,10 @@ impl Viewer {
         window.focus(&self.focus);
         let Some((page, at)) = self.page_point(event.position) else { return };
         match self.tool {
-            Tool::Text => self.start_text(page, at, window, cx),
+            Tool::Text => match self.annotation_at(page, at).filter(|(_, annotation)| matches!(annotation.kind, Kind::Text { .. })) {
+                Some((id, annotation)) => self.edit_text_annotation(page, id, annotation, window, cx),
+                None => self.start_text(page, at, None, window, cx),
+            },
             Tool::DeleteImage => self.delete_image_at(page, at, window, cx),
             Tool::Stamp => self.open_stamp(page, at, window, cx),
             Tool::EditText => self.start_text_edit(page, at, window, cx),
@@ -392,7 +397,23 @@ impl Viewer {
         }
     }
 
-    fn start_text(&mut self, page: usize, at: Point, window: &mut Window, cx: &mut Context<Self>) {
+    /// Opens the editor over text box `id` of displayed page `page`, holding its text.
+    pub(super) fn edit_text_annotation(&mut self, page: usize, id: u64, annotation: Annotation, window: &mut Window, cx: &mut Context<Self>) {
+        let Kind::Text { rect, text, size, .. } = &annotation.kind else { return };
+        let Some(geometry) = self.geometry(page) else { return };
+        let shown = geometry.rect_to_display(*rect);
+        let (text, size) = (text.clone(), *size);
+        self.inspector.size = size;
+        self.start_text(page, Point { x: shown.x, y: shown.y }, Some((id, annotation)), window, cx);
+        if let Some(draft) = &self.text_draft {
+            draft.input.update(cx, |input, cx| {
+                input.set_text(text, cx);
+                input.focus_all(window, cx);
+            });
+        }
+    }
+
+    fn start_text(&mut self, page: usize, at: Point, target: Option<(u64, Annotation)>, window: &mut Window, cx: &mut Context<Self>) {
         let theme = self.theme;
         let input = cx.new(|cx| TextInput::new(t("Type, then Enter"), |_| true, theme, cx));
         cx.subscribe_in(&input, window, |viewer, _, event, window, cx| match event {
@@ -406,21 +427,31 @@ impl Viewer {
         })
         .detach();
         input.update(cx, |input, cx| input.focus_all(window, cx));
-        self.text_draft = Some(TextDraft { page, at, input });
+        self.text_draft = Some(TextDraft { page, at, input, target });
         cx.notify();
     }
 
     fn commit_text(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(TextDraft { page, at, .. }) = self.text_draft.take() else { return };
+        let Some(TextDraft { page, at, target, .. }) = self.text_draft.take() else { return };
         window.focus(&self.focus);
         let Some(geometry) = self.geometry(page) else { return };
         if text.trim().is_empty() {
+            // Emptying a text box removes it.
+            if let Some((id, _)) = target {
+                self.edit(Op::DeleteAnnotation { target: id }, window, cx);
+            }
             return cx.notify();
         }
         let size = self.inspector.size;
         let area = PageRect { x: at.x, y: at.y, width: text_width(&text, size, Font::Helvetica) + 6.0, height: size * 1.3 + 4.0 };
         let kind = Kind::Text { rect: geometry.rect_to_user(area), text, size, font: Font::Helvetica, upright: geometry.rotate };
-        self.annotate(page, kind, window, cx);
+        match target {
+            Some((id, annotation)) => {
+                let annotation = Annotation { kind, ..annotation };
+                self.edit(Op::UpdateAnnotation { target: id, annotation }, window, cx);
+            }
+            None => self.annotate(page, kind, window, cx),
+        }
     }
 
     fn prompt_image(&mut self, page: usize, at: Point, window: &mut Window, cx: &mut Context<Self>) {
