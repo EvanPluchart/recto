@@ -44,7 +44,7 @@ pub fn icon_button(id: impl Into<SharedString>, name: &str, label: &'static str,
     let color = if !enabled {
         theme.disabled
     } else if active {
-        theme.accent
+        theme.highlight
     } else {
         theme.icon
     };

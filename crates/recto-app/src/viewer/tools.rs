@@ -388,8 +388,8 @@ impl Viewer {
                             .justify_center()
                             .rounded(px(4.))
                             .border_1()
-                            .border_color(if on { theme.accent } else { theme.muted })
-                            .when(on, |b| b.bg(theme.accent).child(gpui::svg().path(crate::assets::icon("check")).size(px(12.)).text_color(theme.on_accent))),
+                            .border_color(if on { theme.highlight } else { theme.muted })
+                            .when(on, |b| b.bg(theme.highlight).child(gpui::svg().path(crate::assets::icon("check")).size(px(12.)).text_color(theme.on_accent))),
                     )
                     .child(t(flag.label()))
                     .on_click(cx.listener(move |viewer, _, _, cx| {
@@ -422,7 +422,7 @@ impl Viewer {
                 .py(px(5.))
                 .rounded(px(5.))
                 .cursor_pointer()
-                .when(primary, |b| b.bg(theme.accent).text_color(gpui::white()))
+                .when(primary, |b| b.bg(theme.accent).text_color(theme.on_accent))
                 .when(!primary, |b| b.border_1().border_color(theme.border).hover(move |s| s.bg(theme.hover)))
                 .child(t(label))
         };

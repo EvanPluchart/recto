@@ -76,7 +76,7 @@ impl Viewer {
                             .py(px(6.))
                             .rounded(px(6.))
                             .bg(theme.accent)
-                            .text_color(gpui::white())
+                            .text_color(theme.on_accent)
                             .cursor_pointer()
                             .child(t("Unlock"))
                             .on_click(cx.listener(move |viewer, _, window, cx| {

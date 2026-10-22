@@ -267,7 +267,7 @@ impl Viewer {
                             .rounded(px(8.))
                             .bg(gpui::Rgba { r: color.r, g: color.g, b: color.b, a: 1.0 })
                             .border_2()
-                            .border_color(if active { theme.accent } else { theme.toolbar }),
+                            .border_color(if active { theme.highlight } else { theme.toolbar }),
                     )
                     .on_click(cx.listener(move |viewer, _, _, cx| {
                         viewer.inspector.color = color;
@@ -290,7 +290,7 @@ impl Viewer {
                     .when(active, |b| b.bg(theme.active))
                     .hover(move |s| s.bg(theme.hover))
                     .tooltip(crate::chrome::tooltip("Line width", theme))
-                    .child(div().w(px(14.)).h(px(width.max(1.0))).rounded(px(1.)).bg(if active { theme.accent } else { theme.icon }))
+                    .child(div().w(px(14.)).h(px(width.max(1.0))).rounded(px(1.)).bg(if active { theme.highlight } else { theme.icon }))
                     .on_click(cx.listener(move |viewer, _, _, cx| {
                         viewer.inspector.width = width;
                         cx.notify();

@@ -939,7 +939,7 @@ impl Render for Viewer {
                 this.open_dialog(DialogKind::Split(SplitMode::Ranges), window, cx)
             }))
             .on_drop(cx.listener(Self::on_drop_paths))
-            .drag_over::<ExternalPaths>(move |style, _, _, _| style.border_2().border_color(theme.accent))
+            .drag_over::<ExternalPaths>(move |style, _, _, _| style.border_2().border_color(theme.highlight))
             .relative()
             .size_full()
             .flex()

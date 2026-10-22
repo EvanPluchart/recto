@@ -113,7 +113,7 @@ impl Viewer {
                     .border_1()
                     .border_color(gpui::rgba(0x4c8d_ff55))
                     .bg(gpui::rgba(0x4c8d_ff14))
-                    .hover(move |style| style.border_color(theme.accent))
+                    .hover(move |style| style.border_color(theme.highlight))
                     .cursor_pointer()
                     .on_mouse_down(MouseButton::Left, cx.listener(move |viewer, _, window, cx| {
                         cx.stop_propagation();

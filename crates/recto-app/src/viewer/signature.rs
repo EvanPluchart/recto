@@ -97,7 +97,7 @@ impl Viewer {
                 .py(px(4.))
                 .rounded(px(5.))
                 .cursor_pointer()
-                .when(primary, |b| b.bg(theme.accent).text_color(gpui::white()))
+                .when(primary, |b| b.bg(theme.accent).text_color(theme.on_accent))
                 .when(!primary, |b| b.border_1().border_color(theme.border).hover(move |s| s.bg(theme.hover)))
                 .child(t(label))
         };

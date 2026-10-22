@@ -41,3 +41,7 @@ The wordmark is drawn from the symbol's geometry (circles of one radius, stems o
 ## Status
 
 Not cleared as a trademark: run a professional search before registering. The Windows executable icon and installer artwork come with M6.
+
+## In the app
+
+`crates/recto-app/src/theme.rs` maps the palette onto the interface. Light theme: warm Paper-tinted surfaces, Ink text and main button, Fold (darkened to `#E4561F` for contrast on light surfaces) for the current tool, tab, selection and check boxes. Dark theme: Ink surfaces, Paper text, Fold for what is active and for the main button, with Ink text on it.

@@ -88,7 +88,7 @@ impl Viewer {
                 .py(px(6.))
                 .cursor_pointer()
                 .border_b_2()
-                .border_color(if tab == this { theme.accent } else { theme.toolbar })
+                .border_color(if tab == this { theme.highlight } else { theme.toolbar })
                 .text_color(if tab == this { theme.text } else { theme.muted })
                 .child(t(label))
                 .on_click(cx.listener(move |viewer, _, _, cx| {
@@ -207,11 +207,11 @@ impl Viewer {
                     .items_center()
                     .justify_center()
                     .gap(px(6.))
-                    .drag_over::<DraggedPages>(move |style, _, _, _| style.border_t_2().border_color(theme.accent))
+                    .drag_over::<DraggedPages>(move |style, _, _, _| style.border_t_2().border_color(theme.highlight))
                     .on_drop(cx.listener(move |viewer, dragged: &DraggedPages, window, cx| {
                         viewer.move_pages(dragged.pages.clone(), index, window, cx);
                     }))
-                    .drag_over::<ExternalPaths>(move |style, _, _, _| style.border_t_2().border_color(theme.accent))
+                    .drag_over::<ExternalPaths>(move |style, _, _, _| style.border_t_2().border_color(theme.highlight))
                     .on_drop(cx.listener(move |viewer, paths: &ExternalPaths, window, cx| {
                         // Merge here, rather than open the file in place of this one.
                         cx.stop_propagation();
@@ -228,7 +228,7 @@ impl Viewer {
                     .h(px(height))
                     .bg(theme.placeholder)
                     .border_2()
-                    .border_color(if selected || index == current { theme.accent } else { theme.border });
+                    .border_color(if selected || index == current { theme.highlight } else { theme.border });
                 if let Some(image) = open.thumbnails.get(&index) {
                     page = page.child(img(image.clone()).size_full());
                 }
@@ -321,6 +321,6 @@ struct DragPreview {
 impl gpui::Render for DragPreview {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         let label = if self.count == 1 { t("1 page").to_owned() } else { format!("{} {}", self.count, t("pages")) };
-        div().px(px(8.)).py(px(4.)).rounded(px(4.)).bg(gpui::rgb(0x2f6fdf)).text_color(gpui::white()).text_sm().child(label)
+        div().px(px(8.)).py(px(4.)).rounded(px(4.)).bg(gpui::rgb(0x1b1f3b)).text_color(gpui::rgb(0xfff3e0)).text_sm().child(label)
     }
 }
