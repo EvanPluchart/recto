@@ -3,6 +3,8 @@
 
 use gpui::{AnyElement, Context, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Styled, Window, div, px};
 use recto_core::annot::{Annotation, Color, Kind};
+use recto_core::PageId;
+use recto_core::fileannot::{FileAnnotation, FileChange};
 use recto_core::geom::{PageGeometry, PageRect, Point};
 use recto_core::op::Op;
 
@@ -25,7 +27,10 @@ enum Grip {
 pub struct Picked {
     page: usize,
     id: u64,
+    /// For an annotation of the file, a rectangle over its frame: only the frame is used.
     annotation: Annotation,
+    /// Set for an annotation of the file: its page and place in the page's `/Annots`.
+    file: Option<(PageId, u32)>,
     /// A drag in progress: what is held, and where it started and is now (displayed points).
     drag: Option<(Grip, Point, Point)>,
 }
@@ -111,7 +116,16 @@ impl Viewer {
                 true
             }
             Some((id, annotation)) => {
-                self.picked = Some(Picked { page, id, annotation, drag: Some((Grip::Move, at, at)) });
+                self.picked = Some(Picked { page, id, annotation, file: None, drag: Some((Grip::Move, at, at)) });
+                self.selection = None;
+                cx.notify();
+                true
+            }
+            // Under those made in Recto, the file's own.
+            None if let Some((page_id, found)) = self.file_annotation_at(page, at) => {
+                let annotation = Annotation { kind: Kind::Rectangle { rect: found.frame }, color: Color::BLACK, width: 0.0 };
+                let file = Some((page_id, found.index));
+                self.picked = Some(Picked { page, id: 0, annotation, file, drag: Some((Grip::Move, at, at)) });
                 self.selection = None;
                 cx.notify();
                 true
@@ -155,15 +169,53 @@ impl Viewer {
         let picked = self.picked.as_mut().expect("checked above");
         let shown = dragged(geometry.rect_to_display(picked.annotation.frame()), grip, from, to);
         let moved = picked.annotation.mapped(geometry.rect_to_user(shown));
-        picked.annotation = moved.clone();
-        let target = picked.id;
-        self.edit(Op::UpdateAnnotation { target, annotation: moved }, window, cx);
+        self.record_picked(moved, window, cx);
         true
+    }
+
+    /// Records `annotation` as the new state of the picked one. For an annotation of the file,
+    /// only a new frame is recorded.
+    fn record_picked(&mut self, annotation: Annotation, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(picked) = self.picked.as_mut() else { return };
+        let op = match picked.file {
+            Some((page, index)) => {
+                let frame = annotation.frame();
+                if frame == picked.annotation.frame() {
+                    return;
+                }
+                picked.annotation = Annotation { kind: Kind::Rectangle { rect: frame }, ..picked.annotation.clone() };
+                Op::EditFileAnnotation { page, index, change: FileChange::Frame(frame) }
+            }
+            None => {
+                if annotation == picked.annotation {
+                    return;
+                }
+                picked.annotation = annotation.clone();
+                Op::UpdateAnnotation { target: picked.id, annotation }
+            }
+        };
+        self.edit(op, window, cx);
+    }
+
+    /// The annotation of the file under displayed point `at` of page `page`: its page and what
+    /// is known of it. The smallest one wins, so a note on a large shape can be reached.
+    fn file_annotation_at(&self, page: usize, at: Point) -> Option<(PageId, FileAnnotation)> {
+        let open = self.open()?;
+        let (geometry, id) = (open.geometry.get(page)?, open.page_states.get(page)?.id);
+        let point = geometry.to_user(at);
+        let found = open.file_annotations.get(page)?.iter().filter(|annotation| {
+            let frame = annotation.frame;
+            point.x >= frame.origin.x - SLOP
+                && point.x <= frame.origin.x + frame.width + SLOP
+                && point.y >= frame.origin.y - SLOP
+                && point.y <= frame.origin.y + frame.height + SLOP
+        });
+        found.min_by(|a, b| (a.frame.width * a.frame.height).total_cmp(&(b.frame.width * b.frame.height))).map(|annotation| (id, *annotation))
     }
 
     /// The colour and line width of the picked annotation, shown as the tool bar's choice.
     pub(super) fn picked_style(&self) -> Option<(Color, f32)> {
-        self.picked.as_ref().map(|picked| (picked.annotation.color, picked.annotation.width))
+        self.picked.as_ref().filter(|picked| picked.file.is_none()).map(|picked| (picked.annotation.color, picked.annotation.width))
     }
 
     /// The size and font of the picked text box.
@@ -179,21 +231,16 @@ impl Viewer {
     pub(super) fn restyle_picked(&mut self, change: impl FnOnce(&mut Annotation, &PageGeometry), window: &mut Window, cx: &mut Context<Self>) {
         let Some(page) = self.picked.as_ref().map(|picked| picked.page) else { return };
         let Some(geometry) = self.open().and_then(|open| open.geometry.get(page).copied()) else { return };
-        let Some(picked) = self.picked.as_mut() else { return };
+        let Some(picked) = self.picked.as_ref() else { return };
         let mut annotation = picked.annotation.clone();
         change(&mut annotation, &geometry);
-        if annotation == picked.annotation {
-            return;
-        }
-        picked.annotation = annotation.clone();
-        let target = picked.id;
-        self.edit(Op::UpdateAnnotation { target, annotation }, window, cx);
+        self.record_picked(annotation, window, cx);
     }
 
 
     /// Ctrl+C on a picked annotation: keeps a copy to paste. Returns whether there was one.
     pub(super) fn copy_picked(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(picked) = &self.picked else { return false };
+        let Some(picked) = self.picked.as_ref().filter(|picked| picked.file.is_none()) else { return false };
         self.copied = Some(picked.annotation.clone());
         self.notice = Some(t("Annotation copied.").into());
         cx.notify();
@@ -229,7 +276,7 @@ impl Viewer {
         self.edit(Op::AddAnnotation { page: id, annotation }, window, cx);
         // The new annotation is the last one of its page.
         if let Some((added, annotation)) = self.open().and_then(|open| open.document.annotations(id).into_iter().last()) {
-            self.picked = Some(Picked { page, id: added, annotation, drag: None });
+            self.picked = Some(Picked { page, id: added, annotation, file: None, drag: None });
         }
         cx.notify();
     }
@@ -239,7 +286,11 @@ impl Viewer {
         if !self.editing {
             return;
         }
-        let Some((page, annotation)) = self.picked.as_ref().map(|picked| (picked.page, picked.annotation.clone())) else { return };
+        let Some((page, annotation)) =
+            self.picked.as_ref().filter(|picked| picked.file.is_none()).map(|picked| (picked.page, picked.annotation.clone()))
+        else {
+            return;
+        };
         self.place_copy(annotation, page, window, cx);
     }
 
@@ -263,7 +314,11 @@ impl Viewer {
     /// Deletes the picked annotation; returns whether there was one.
     pub(super) fn delete_picked(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(picked) = self.picked.take() else { return false };
-        self.edit(Op::DeleteAnnotation { target: picked.id }, window, cx);
+        let op = match picked.file {
+            Some((page, index)) => Op::EditFileAnnotation { page, index, change: FileChange::Delete },
+            None => Op::DeleteAnnotation { target: picked.id },
+        };
+        self.edit(op, window, cx);
         true
     }
 

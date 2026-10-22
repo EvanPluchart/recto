@@ -2,6 +2,7 @@
 
 use crate::PageId;
 use crate::annot::Annotation;
+use crate::fileannot::FileChange;
 use crate::form::NewField;
 use crate::geom::{Point, Rect};
 use crate::meta::Metadata;
@@ -43,6 +44,9 @@ pub enum Op {
     UpdateAnnotation { target: u64, annotation: Annotation },
     /// Removes the annotation added by the op with id `target`.
     DeleteAnnotation { target: u64 },
+    /// Moves, resizes or deletes the annotation of the file at place `index` of `page`'s `/Annots`
+    /// (see `fileannot.rs`).
+    EditFileAnnotation { page: PageId, index: u32, change: FileChange },
     /// A new form field `name` with one widget over `rect` (user space) on `page`.
     AddField { page: PageId, rect: Rect, name: String, field: NewField },
     /// Sets the value of the form field named `name` (see `form::FormField::value`).
@@ -105,6 +109,7 @@ pub fn replay(initial: &[PageId], ops: &[Op]) -> Vec<PageState> {
             | Op::AddField { .. }
             | Op::UpdateAnnotation { .. }
             | Op::DeleteAnnotation { .. }
+            | Op::EditFileAnnotation { .. }
             | Op::Redact { .. }
             | Op::Erase { .. }
             | Op::DeleteImage { .. }

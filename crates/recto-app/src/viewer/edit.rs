@@ -430,8 +430,8 @@ impl Viewer {
         let task = cx.background_executor().spawn(async move {
             let pages = snapshot.pages();
             let bytes = snapshot.build()?;
-            let (geometry, fields) = snapshot.geometry_and_fields(&pages)?;
-            Ok((bytes, Known::with(&snapshot, pages, geometry, fields)))
+            let (geometry, fields, annotations) = snapshot.geometry_and_fields(&pages)?;
+            Ok((bytes, Known::with(&snapshot, pages, geometry, fields, annotations)))
         });
         cx.spawn_in(window, async move |this, cx| {
             let built: Built = task.await;

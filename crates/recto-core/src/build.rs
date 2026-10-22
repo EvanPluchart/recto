@@ -15,7 +15,8 @@ use crate::PageId;
 use crate::security::{Security, SecurityError};
 use crate::textedit::{EditError, TextEdit, TextRun};
 use crate::textlayer::TextLayer;
-use crate::{annot, compress, embed, form, gray, links, redact, stamp, textedit, textlayer};
+use crate::{annot, compress, embed, fileannot, form, gray, links, redact, stamp, textedit, textlayer};
+use crate::fileannot::{FileAnnotation, FileChange};
 use crate::geom::{PageGeometry, Point, Rect};
 use crate::document::{Document, Source};
 use crate::op::{Op, PageState};
@@ -104,14 +105,40 @@ impl Document {
 
     /// How each of `pages` is shown, and the form fields: `geometry_of` and `form_fields`, reading
     /// the opened file once.
-    pub fn geometry_and_fields(&self, pages: &[PageState]) -> Result<(Vec<PageGeometry>, Vec<form::FormField>), BuildError> {
+    #[allow(clippy::type_complexity)]
+    pub fn geometry_and_fields(
+        &self,
+        pages: &[PageState],
+    ) -> Result<(Vec<PageGeometry>, Vec<form::FormField>, Vec<Vec<FileAnnotation>>), BuildError> {
         let mut loaded = HashMap::new();
         let geometry = self.geometry_in(pages, &mut loaded)?;
+        // The annotations of the files that can be picked, as changed so far.
+        let annotations = pages
+            .iter()
+            .map(|page| match loaded.get(&page.id.source) {
+                Some((document, ids)) => ids
+                    .get(page.id.index as usize)
+                    .map(|&id| fileannot::current(fileannot::read(document, id), &self.file_changes(page.id)))
+                    .unwrap_or_default(),
+                None => Vec::new(),
+            })
+            .collect();
         let fields = match loaded.get(&0) {
             Some((base, _)) => self.form_fields_in(base),
             None => self.form_fields_in(&load(&self.sources()[0])?),
         };
-        Ok((geometry, fields))
+        Ok((geometry, fields, annotations))
+    }
+
+    /// What was done to the annotations of the file on `page`, by place, in order.
+    pub fn file_changes(&self, page: PageId) -> Vec<(u32, FileChange)> {
+        self.ops()
+            .iter()
+            .filter_map(|op| match op {
+                Op::EditFileAnnotation { page: target, index, change } if *target == page => Some((*index, *change)),
+                _ => None,
+            })
+            .collect()
     }
 
     /// The form fields of `base` (the opened file, parsed), with the values filled so far.
@@ -213,6 +240,14 @@ impl Document {
         node.set("Kids", Object::Array(kids));
         base.objects.insert(tree, Object::Dictionary(node));
         base.catalog_mut()?.set("Pages", Object::Reference(tree));
+
+        // Annotations of the files moved, resized or deleted: first, while `/Annots` is as in the file.
+        for page in pages {
+            let changes = self.file_changes(page.id);
+            if let (false, Some(&id)) = (changes.is_empty(), objects.get(&page.id)) {
+                fileannot::apply(&mut base, id, &changes)?;
+            }
+        }
 
         // Annotations and redactions on pages that are part of this output, in log order: a
         // redaction deletes the annotations made before it.
@@ -657,6 +692,25 @@ mod tests {
 
     fn id(index: u32) -> PageId {
         PageId { source: 0, index }
+    }
+
+    #[test]
+    fn annotations_of_the_file_move_and_go() {
+        let mut document = open("redact.pdf");
+        let pages = document.pages();
+        let (_, _, annotations) = document.geometry_and_fields(&pages).unwrap();
+        // The FreeText and the Square.
+        assert_eq!(annotations[0].len(), 2);
+        let (free_text, square) = (annotations[0][0], annotations[0][1]);
+        let to = Rect { origin: Point { x: 200.0, y: 200.0 }, width: 100.0, height: 30.0 };
+        document.apply(Op::EditFileAnnotation { page: id(0), index: free_text.index, change: FileChange::Frame(to) });
+        document.apply(Op::EditFileAnnotation { page: id(0), index: square.index, change: FileChange::Delete });
+        let (_, _, annotations) = document.geometry_and_fields(&pages).unwrap();
+        assert_eq!(annotations[0], [FileAnnotation { index: free_text.index, frame: to }]);
+
+        let built = lopdf::Document::load_mem(&document.build().unwrap()).unwrap();
+        let page = *built.get_pages().values().next().unwrap();
+        assert_eq!(fileannot::read(&built, page).iter().map(|annotation| annotation.frame).collect::<Vec<_>>(), [to]);
     }
 
     /// Reopens a built file: each page's text and its `/Rotate`.

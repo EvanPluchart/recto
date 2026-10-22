@@ -9,6 +9,7 @@ use gpui::{
     ExternalPaths, MouseButton, ScrollHandle, ScrollWheelEvent, SharedString, Styled, Window, actions, div, img, point,
     prelude::*, px,
 };
+use recto_core::fileannot::FileAnnotation;
 use recto_core::form::FormField;
 use recto_core::geom::{PageGeometry, PageRect, Point, Size};
 use recto_core::layout::{self, PageLayout};
@@ -118,6 +119,8 @@ struct Open {
     /// How each shown page maps to user space, and the form fields of the opened file.
     geometry: Vec<PageGeometry>,
     fields: Vec<FormField>,
+    /// See `Known::annotations`.
+    file_annotations: Vec<Vec<FileAnnotation>>,
     /// See `Known::marks`.
     marks: Vec<Vec<u64>>,
     renderer: RenderThread,
@@ -146,6 +149,8 @@ pub(super) struct Known {
     pages: Vec<PageState>,
     geometry: Vec<PageGeometry>,
     fields: Vec<FormField>,
+    /// Per page, the annotations of the file that can be picked.
+    annotations: Vec<Vec<FileAnnotation>>,
     /// Per page, the ids of the ops drawn on it (annotations, filled fields, redactions, crops,
     /// stamps, and for page numbers the position): a page whose
     /// state and marks are unchanged keeps its bitmap across a rebuild.
@@ -156,11 +161,17 @@ impl Known {
     /// Read from `document` (as it is now) with lopdf.
     pub(super) fn of(document: &Document) -> Self {
         let pages = document.pages();
-        let (geometry, fields) = document.geometry_and_fields(&pages).unwrap_or_default();
-        Known::with(document, pages, geometry, fields)
+        let (geometry, fields, annotations) = document.geometry_and_fields(&pages).unwrap_or_default();
+        Known::with(document, pages, geometry, fields, annotations)
     }
 
-    fn with(document: &Document, pages: Vec<PageState>, geometry: Vec<PageGeometry>, fields: Vec<FormField>) -> Self {
+    pub(super) fn with(
+        document: &Document,
+        pages: Vec<PageState>,
+        geometry: Vec<PageGeometry>,
+        fields: Vec<FormField>,
+        annotations: Vec<Vec<FileAnnotation>>,
+    ) -> Self {
         let mut by_page: HashMap<PageId, Vec<u64>> = HashMap::new();
         for (op, &id) in document.ops().iter().zip(document.op_ids()) {
             match op {
@@ -170,7 +181,8 @@ impl Known {
                 | recto_core::op::Op::DeleteImage { page, .. }
                 | recto_core::op::Op::AddTextLayer { page, .. }
                 | recto_core::op::Op::EditText { page, .. }
-                | recto_core::op::Op::AddField { page, .. } => {
+                | recto_core::op::Op::AddField { page, .. }
+                | recto_core::op::Op::EditFileAnnotation { page, .. } => {
                     by_page.entry(*page).or_default().push(id)
                 }
                 // The page of the annotation they change.
@@ -213,7 +225,7 @@ impl Known {
             }
         }
         let marks = pages.iter().map(|page| by_page.get(&page.id).cloned().unwrap_or_default()).collect();
-        Known { pages, geometry, fields, marks }
+        Known { pages, geometry, fields, annotations, marks }
     }
 }
 
@@ -490,7 +502,7 @@ impl Viewer {
         if !self.show_annotations {
             renderer.show_annotations(false);
         }
-        let Known { pages: page_states, geometry, fields, marks } = known.unwrap_or_else(|| Known::of(&document));
+        let Known { pages: page_states, geometry, fields, annotations: file_annotations, marks } = known.unwrap_or_else(|| Known::of(&document));
         let responses = renderer.responses().clone();
         // Responses go to this document only: once another one is open, the listener stops.
         self.opened += 1;
@@ -517,6 +529,7 @@ impl Viewer {
             geometry,
             marks,
             fields,
+            file_annotations,
             renderer,
             info: None,
             layout: None,

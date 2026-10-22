@@ -6,6 +6,7 @@ pub mod build;
 pub mod compress;
 pub mod content;
 pub mod embed;
+pub mod fileannot;
 pub mod document;
 pub mod fonts;
 pub mod form;
