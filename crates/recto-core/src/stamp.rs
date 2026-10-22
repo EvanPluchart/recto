@@ -132,7 +132,7 @@ impl Stamp {
 }
 
 /// A resource name not used yet in `dictionary`.
-fn fresh_name(dictionary: &Dictionary, prefix: &str) -> Vec<u8> {
+pub(crate) fn fresh_name(dictionary: &Dictionary, prefix: &str) -> Vec<u8> {
     (0..).map(|n| format!("{prefix}{n}").into_bytes()).find(|name| !dictionary.has(name)).expect("an unused name")
 }
 
@@ -142,12 +142,7 @@ pub fn apply(document: &mut lopdf::Document, pages: &[(ObjectId, PageGeometry)],
     if stamps.is_empty() {
         return Ok(());
     }
-    let mut font = Dictionary::new();
-    font.set("Type", Object::Name(b"Font".to_vec()));
-    font.set("Subtype", Object::Name(b"Type1".to_vec()));
-    font.set("BaseFont", Object::Name(b"Helvetica".to_vec()));
-    font.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
-    let font = document.add_object(font);
+    let font = helvetica(document);
     let open = document.add_object(Stream::new(Dictionary::new(), b"q\n".to_vec()));
     let count = pages.len();
 
@@ -178,23 +173,40 @@ pub fn apply(document: &mut lopdf::Document, pages: &[(ObjectId, PageGeometry)],
         resources.set("Font", Object::Dictionary(fonts));
         resources.set("ExtGState", Object::Dictionary(states));
 
-        let mut contents: Vec<Object> = vec![Object::Reference(open)];
-        match document.get_dictionary(*page)?.get(b"Contents") {
-            Ok(Object::Array(items)) => contents.extend(items.iter().cloned()),
-            Ok(Object::Reference(id)) => match document.get_object(*id) {
-                Ok(Object::Array(items)) => contents.extend(items.iter().cloned()),
-                _ => contents.push(Object::Reference(*id)),
-            },
-            _ => {}
-        }
-        let mut stream = Stream::new(Dictionary::new(), content);
-        let _ = stream.compress();
-        contents.push(Object::Reference(document.add_object(stream)));
-        let dictionary = document.get_dictionary_mut(*page)?;
-        dictionary.set("Contents", Object::Array(contents));
-        dictionary.set("Resources", Object::Dictionary(resources));
+        append(document, *page, open, content, resources)?;
     }
     Ok(())
+}
+
+/// Wraps the content of `page` in `open` (a stream holding `q`) and a new stream holding
+/// `content`, which must start with `Q`; sets the page's resources to `resources`.
+pub(crate) fn append(document: &mut lopdf::Document, page: ObjectId, open: ObjectId, content: Vec<u8>, resources: Dictionary) -> lopdf::Result<()> {
+    let mut contents: Vec<Object> = vec![Object::Reference(open)];
+    match document.get_dictionary(page)?.get(b"Contents") {
+        Ok(Object::Array(items)) => contents.extend(items.iter().cloned()),
+        Ok(Object::Reference(id)) => match document.get_object(*id) {
+            Ok(Object::Array(items)) => contents.extend(items.iter().cloned()),
+            _ => contents.push(Object::Reference(*id)),
+        },
+        _ => {}
+    }
+    let mut stream = Stream::new(Dictionary::new(), content);
+    let _ = stream.compress();
+    contents.push(Object::Reference(document.add_object(stream)));
+    let dictionary = document.get_dictionary_mut(page)?;
+    dictionary.set("Contents", Object::Array(contents));
+    dictionary.set("Resources", Object::Dictionary(resources));
+    Ok(())
+}
+
+/// A Helvetica font object with WinAnsiEncoding.
+pub(crate) fn helvetica(document: &mut lopdf::Document) -> ObjectId {
+    let mut font = Dictionary::new();
+    font.set("Type", Object::Name(b"Font".to_vec()));
+    font.set("Subtype", Object::Name(b"Type1".to_vec()));
+    font.set("BaseFont", Object::Name(b"Helvetica".to_vec()));
+    font.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
+    document.add_object(font)
 }
 
 #[cfg(test)]

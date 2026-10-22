@@ -18,6 +18,7 @@ pub mod security;
 pub mod split;
 pub mod stamp;
 pub mod text;
+pub mod textlayer;
 
 pub use build::{BuildError, BuildOptions};
 pub use document::{Document, OpenError, Source};

@@ -1,0 +1,16 @@
+[package]
+name = "recto-ocr"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+ocrs = { version = "0.13.1", default-features = false, features = ["rten"] }
+rten = { version = "0.26.0", default-features = false, features = ["rten_format"] }
+
+[dev-dependencies]
+recto-core.workspace = true
+recto-render.workspace = true
+lopdf.workspace = true

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/recto-core", "crates/recto-render", "crates/recto-app", "xtask"]
+members = ["crates/recto-core", "crates/recto-render", "crates/recto-ocr", "crates/recto-app", "xtask"]
 
 [workspace.package]
 version = "0.0.0"
@@ -16,6 +16,7 @@ repository = "https://github.com/EvanPluchart/recto"
 [workspace.dependencies]
 recto-core = { path = "crates/recto-core" }
 recto-render = { path = "crates/recto-render" }
+recto-ocr = { path = "crates/recto-ocr" }
 gpui = "=0.2.2"
 pdfium-render = { version = "=0.9.4", default-features = false, features = ["pdfium_7881", "thread_safe"] }
 lopdf = { version = "0.46.0", default-features = false }
@@ -25,3 +26,23 @@ thiserror = "2.0.21"
 pdf-writer = "0.15.0"
 image = { version = "0.25.10", default-features = false }
 getrandom = "0.4.3"
+
+# OCR is unusably slow unoptimised, even in debug builds and tests.
+[profile.dev.package.ocrs]
+opt-level = 3
+[profile.dev.package.rten]
+opt-level = 3
+[profile.dev.package.rten-base]
+opt-level = 3
+[profile.dev.package.rten-gemm]
+opt-level = 3
+[profile.dev.package.rten-imageproc]
+opt-level = 3
+[profile.dev.package.rten-parallel]
+opt-level = 3
+[profile.dev.package.rten-simd]
+opt-level = 3
+[profile.dev.package.rten-tensor]
+opt-level = 3
+[profile.dev.package.rten-vecmath]
+opt-level = 3

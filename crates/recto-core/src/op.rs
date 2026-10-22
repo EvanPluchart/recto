@@ -5,6 +5,7 @@ use crate::annot::Annotation;
 use crate::geom::Rect;
 use crate::meta::Metadata;
 use crate::stamp::Stamp;
+use crate::textlayer::TextLayer;
 
 /// Clockwise rotation in quarter turns.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,6 +45,8 @@ pub enum Op {
     CropPages { pages: Vec<PageId>, area: Rect },
     /// Text drawn on pages: watermark, page numbers, header or footer.
     AddStamp(Stamp),
+    /// Invisible text recognised on `page` (OCR).
+    AddTextLayer { page: PageId, layer: TextLayer },
     /// Title, author, subject, keywords.
     SetMetadata(Metadata),
 }
@@ -88,6 +91,7 @@ pub fn replay(initial: &[PageId], ops: &[Op]) -> Vec<PageState> {
             | Op::Redact { .. }
             | Op::CropPages { .. }
             | Op::AddStamp(_)
+            | Op::AddTextLayer { .. }
             | Op::SetMetadata(_) => {}
         }
     }

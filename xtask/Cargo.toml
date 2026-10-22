@@ -13,3 +13,4 @@ lopdf.workspace = true
 pdf-writer.workspace = true
 tar = { version = "0.4.46", default-features = false }
 ureq = "3.5.0"
+sha2 = "0.10.9"

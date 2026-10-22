@@ -122,7 +122,7 @@ pub(crate) fn win_ansi(text: &str) -> Vec<u8> {
 }
 
 /// Appearance matrix turning upright content by the page's display rotation.
-fn upright_matrix(upright: u16) -> [f32; 6] {
+pub(crate) fn upright_matrix(upright: u16) -> [f32; 6] {
     match upright % 360 {
         90 => [0.0, 1.0, -1.0, 0.0, 0.0, 0.0],
         180 => [-1.0, 0.0, 0.0, -1.0, 0.0, 0.0],

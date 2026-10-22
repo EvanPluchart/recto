@@ -13,7 +13,8 @@ use lopdf::{Dictionary, Object, ObjectId};
 
 use crate::PageId;
 use crate::security::{Security, SecurityError};
-use crate::{annot, compress, form, gray, redact, stamp};
+use crate::textlayer::TextLayer;
+use crate::{annot, compress, form, gray, redact, stamp, textlayer};
 use crate::geom::{PageGeometry, Point, Rect};
 use crate::document::{Document, Source};
 use crate::op::{Op, PageState};
@@ -182,6 +183,20 @@ impl Document {
                     }
                 }
                 _ => {}
+            }
+        }
+        // Recognised text goes in before redaction, so redaction removes it too.
+        for page in pages {
+            let layers: Vec<&TextLayer> = self
+                .ops()
+                .iter()
+                .filter_map(|op| match op {
+                    Op::AddTextLayer { page: target, layer } if *target == page.id => Some(layer),
+                    _ => None,
+                })
+                .collect();
+            if let (false, Some(&id)) = (layers.is_empty(), objects.get(&page.id)) {
+                textlayer::apply(&mut base, id, &layers)?;
             }
         }
         form::fill(&mut base, &self.filled_values());

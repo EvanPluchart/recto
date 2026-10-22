@@ -38,6 +38,11 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main' }}
       - run: cargo xtask fetch-pdfium
+      - uses: actions/cache@v4
+        with:
+          path: target/ocr-models
+          key: ocr-models-${{ hashFiles('xtask/src/main.rs') }}
+      - run: cargo xtask fetch-ocr-models
       - run: cargo check --workspace --all-targets --locked
       - run: cargo test --workspace --locked
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings

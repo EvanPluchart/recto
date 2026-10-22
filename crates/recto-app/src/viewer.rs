@@ -147,7 +147,9 @@ impl Known {
         let mut by_page: HashMap<PageId, Vec<u64>> = HashMap::new();
         for (op, &id) in document.ops().iter().zip(document.op_ids()) {
             match op {
-                recto_core::op::Op::AddAnnotation { page, .. } | recto_core::op::Op::Redact { page, .. } => {
+                recto_core::op::Op::AddAnnotation { page, .. }
+                | recto_core::op::Op::Redact { page, .. }
+                | recto_core::op::Op::AddTextLayer { page, .. } => {
                     by_page.entry(*page).or_default().push(id)
                 }
                 recto_core::op::Op::CropPages { pages: cropped, .. } => {
