@@ -1,4 +1,4 @@
-//! Recto binary: `recto [file.pdf] [--edit] [--page=N] [--zoom=PCT] [--sidebar=thumbnails|outline] [--tool=NAME] [--find=TEXT] [--apply=EDITS] [--save-as=PATH] [--export=PATH [--compress] [--grayscale] [--flatten] [--password=PASS]] [--ocr] [--dark|--light]`.
+//! Recto binary: `recto [file.pdf] [--edit] [--page=N] [--zoom=PCT] [--sidebar=thumbnails|outline] [--tool=NAME] [--find=TEXT] [--apply=EDITS] [--save-as=PATH] [--export=PATH [--compress] [--grayscale] [--flatten] [--password=PASS]] [--ocr]`.
 //! Opens one document in a continuous, zoomable page view.
 
 // Release builds on Windows are GUI programs: no console window opens with them. Debug builds
@@ -32,8 +32,6 @@ pub struct Args {
     pub page: usize,
     /// Percent of the page's natural size (100 = 1 pt per logical pixel); `None` fits the width.
     pub zoom: Option<f32>,
-    /// `Some(true)` for `--dark`, `Some(false)` for `--light`, `None` to follow the system.
-    pub dark: Option<bool>,
     /// Sidebar shown at start (`--sidebar=thumbnails|outline`).
     pub sidebar: Option<Tab>,
     /// Search opened at start (`--find=TEXT`).
@@ -109,10 +107,6 @@ impl Args {
                 parsed.edit = true;
             } else if arg == "--ocr" {
                 parsed.ocr = true;
-            } else if arg == "--dark" {
-                parsed.dark = Some(true);
-            } else if arg == "--light" {
-                parsed.dark = Some(false);
             } else if arg.starts_with("--") {
                 eprintln!("recto: ignoring unknown option {arg}");
             } else {
@@ -158,9 +152,9 @@ mod tests {
 
     #[test]
     fn parses_test_flags() {
-        let args = parse("a.pdf --page=3 --zoom=150 --dark --sidebar=outline");
+        let args = parse("a.pdf --page=3 --zoom=150 --sidebar=outline");
         let expected =
-            Args { file: Some("a.pdf".into()), page: 3, zoom: Some(150.0), dark: Some(true), sidebar: Some(Tab::Outline), ..Args::default() };
+            Args { file: Some("a.pdf".into()), page: 3, zoom: Some(150.0), sidebar: Some(Tab::Outline), ..Args::default() };
         assert_eq!(args, expected);
     }
 
@@ -175,7 +169,7 @@ mod tests {
 
     #[test]
     fn falls_back_on_bad_values() {
-        let args = parse("--page=0 --zoom=abc --light");
-        assert_eq!(args, Args { page: 1, dark: Some(false), ..Args::default() });
+        let args = parse("--page=0 --zoom=abc");
+        assert_eq!(args, Args { page: 1, ..Args::default() });
     }
 }

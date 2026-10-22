@@ -27,7 +27,7 @@ cargo run -p recto -- tests/fixtures/sample.pdf --page=1 --zoom=100
 
 ## Seeing the app
 
-Launch with test flags (`--page`, `--zoom`, `--tool`, `--dark`/`--light`) to reach a state directly. On Windows, capture the window with PrintWindow, not a screen grab. Never send synthetic input unless the Recto window is verified to be in the foreground.
+Launch with test flags (`--page`, `--zoom`, `--tool`, `--edit`, `--dialog`, `--menu`) to reach a state directly. On Windows, capture the window with PrintWindow, not a screen grab. Never send synthetic input unless the Recto window is verified to be in the foreground.
 
 ## Reference code
 

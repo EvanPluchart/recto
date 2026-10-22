@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use gpui::{
     AnyElement, App, Context, Entity, FocusHandle, Focusable, IntoElement, KeyBinding, ParentElement, Render, RenderImage,
-    ExternalPaths, MouseButton, ScrollHandle, ScrollWheelEvent, SharedString, Styled, Window, WindowAppearance, actions, div, img, point,
+    ExternalPaths, MouseButton, ScrollHandle, ScrollWheelEvent, SharedString, Styled, Window, actions, div, img, point,
     prelude::*, px,
 };
 use recto_core::form::FormField;
@@ -331,8 +331,7 @@ pub struct Viewer {
 
 impl Viewer {
     pub fn new(args: Args, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let dark = args.dark.unwrap_or(matches!(window.appearance(), WindowAppearance::Dark | WindowAppearance::VibrantDark));
-        let theme = Theme::new(dark);
+        let theme = Theme::light();
         let zoom = args.zoom.map_or(ZoomMode::FitWidth, |pct| ZoomMode::Fixed((pct / 100.0).clamp(MIN_ZOOM, MAX_ZOOM)));
         let page_input = cx.new(|cx| TextInput::new("", |c| c.is_ascii_digit(), theme, cx));
         cx.subscribe_in(&page_input, window, |this, _, event, window, cx| match event {
