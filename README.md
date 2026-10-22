@@ -35,6 +35,10 @@ cargo xtask fetch-ocr-models        # OCR models (CC BY-SA 4.0) into target/ocr-
 
 `cargo xtask gen-fixtures` regenerates the committed fixtures in `tests/fixtures/`. On Linux, GPUI needs the X11/Wayland, xkbcommon, Vulkan and fontconfig development packages (see `.github/workflows/ci.yml`).
 
+## Packaging
+
+`cargo xtask dist` builds a release and packages it for the host in `target/dist/`: on Windows a portable zip and, with [Inno Setup 6](https://jrsoftware.org/isinfo.php) installed, an installer; on macOS `Recto.app` and a `.dmg`; on Linux an AppImage (with `appimagetool`). Run `fetch-pdfium` and `fetch-ocr-models` first. The Release workflow (`.github/workflows/release.yml`) does the same on the three systems for a `v*` tag and drafts a GitHub release. Details, signing included, are at the top of `xtask/src/dist.rs`.
+
 ## Documentation
 
 * [Architecture](docs/ARCHITECTURE.md)

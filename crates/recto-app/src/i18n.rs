@@ -177,6 +177,7 @@ const FR: &[(&str, &str)] = &[
     ("Edit the PDF text (beta)", "Modifier le texte du PDF (bêta)"),
     ("Add text", "Ajouter du texte"),
     ("Print (Ctrl+P)", "Imprimer (Ctrl+P)"),
+    ("Print…", "Imprimer…"),
     ("Cannot print", "Impossible d’imprimer"),
     ("Printing: page", "Impression : page"),
     ("Sent to the printer.", "Envoyé à l’imprimante."),

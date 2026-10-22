@@ -1,0 +1,94 @@
+name: Release
+
+# Packages Recto for Windows, macOS and Linux with `cargo xtask dist`. Runs only on a version
+# tag (then drafts a GitHub release) or by hand: never on pushes, Actions minutes are counted.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    env:
+      # Secrets cannot be tested in a step's `if`; this flag can.
+      HAS_MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE_P12 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GPUI system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev \
+            libx11-xcb-dev libxcb1-dev libfontconfig-dev libfreetype-dev libfuse2
+      - name: Fetch appimagetool
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/1.9.0/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          echo "APPIMAGETOOL=$PWD/appimagetool" >> "$GITHUB_ENV"
+      # Signing on macOS only when the certificate is configured (secrets
+      # MACOS_CERTIFICATE_P12, MACOS_CERTIFICATE_PASSWORD, MACOS_IDENTITY, and for notarisation
+      # NOTARY_APPLE_ID, NOTARY_TEAM_ID, NOTARY_PASSWORD).
+      - name: Import the signing certificate
+        if: runner.os == 'macOS' && env.HAS_MACOS_CERTIFICATE == 'true'
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_IDENTITY: ${{ secrets.MACOS_IDENTITY }}
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          security create-keychain -p "" "$keychain"
+          security set-keychain-settings "$keychain"
+          security unlock-keychain -p "" "$keychain"
+          echo "$MACOS_CERTIFICATE_P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" "$keychain"
+          security list-keychains -d user -s "$keychain" login.keychain-db
+          echo "RECTO_MACOS_IDENTITY=$MACOS_IDENTITY" >> "$GITHUB_ENV"
+          if [ -n "$NOTARY_APPLE_ID" ]; then
+            xcrun notarytool store-credentials recto --apple-id "$NOTARY_APPLE_ID" --team-id "$NOTARY_TEAM_ID" --password "$NOTARY_PASSWORD"
+            echo "RECTO_NOTARY_PROFILE=recto" >> "$GITHUB_ENV"
+          fi
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo xtask fetch-pdfium
+      - run: cargo xtask fetch-ocr-models
+      - run: cargo xtask dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: recto-${{ runner.os }}
+          path: |
+            target/dist/*.exe
+            target/dist/*.zip
+            target/dist/*.dmg
+            target/dist/*.AppImage
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: packages
+          merge-multiple: true
+      # A draft: published by hand once checked.
+      - run: gh release create "$GITHUB_REF_NAME" packages/* --draft --title "Recto ${GITHUB_REF_NAME#v}" --generate-notes --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}

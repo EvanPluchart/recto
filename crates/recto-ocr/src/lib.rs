@@ -34,8 +34,12 @@ pub fn model_dirs(extra: Option<&Path>) -> Vec<PathBuf> {
     if let Some(dir) = std::env::var_os("RECTO_OCR_MODELS") {
         dirs.push(PathBuf::from(dir));
     }
-    if let Some(dir) = std::env::current_exe().ok().and_then(|exe| exe.parent().map(|dir| dir.join("ocr-models"))) {
-        dirs.push(dir);
+    if let Some(dir) = std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_owned)) {
+        // In a macOS app bundle, data lives in `Contents/Resources`, beside `Contents/MacOS`.
+        if cfg!(target_os = "macos") {
+            dirs.push(dir.join("../Resources/ocr-models"));
+        }
+        dirs.push(dir.join("ocr-models"));
     }
     if let Some(extra) = extra {
         dirs.push(extra.to_owned());

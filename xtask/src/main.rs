@@ -4,7 +4,9 @@
 //! * `gen-fixtures`: writes the committed fixtures in `tests/fixtures/`.
 //! * `gen-large [PAGES]`: writes `target/large.pdf` (500 pages by default) for performance checks.
 //! * `fetch-ocr-models`: downloads the pinned OCR models into `target/ocr-models/` (decision 0004).
+//! * `dist [--no-build]`: builds a release and packages it for the host in `target/dist/` (`dist.rs`).
 
+mod dist;
 mod fixtures;
 
 use std::fs;
@@ -23,12 +25,13 @@ fn main() -> Result<()> {
         Some("fetch-pdfium") => fetch_pdfium(),
         Some("fetch-ocr-models") => fetch_ocr_models(),
         Some("gen-fixtures") => fixtures::generate(&workspace_root()),
+        Some("dist") => dist::dist(&workspace_root(), std::env::args().nth(2).as_deref() != Some("--no-build")),
         Some("gen-large") => {
             let pages = std::env::args().nth(2).and_then(|n| n.parse().ok()).unwrap_or(500);
             fixtures::generate_large(&workspace_root(), pages)
         }
         _ => {
-            eprintln!("usage: cargo xtask <fetch-pdfium | fetch-ocr-models | gen-fixtures | gen-large [PAGES]>");
+            eprintln!("usage: cargo xtask <fetch-pdfium | fetch-ocr-models | gen-fixtures | gen-large [PAGES] | dist [--no-build]>");
             std::process::exit(2);
         }
     }

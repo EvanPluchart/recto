@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recto — lecteur et éditeur PDF</title>
+<meta name="description" content="Recto : lire, annoter, signer et organiser vos PDF, hors ligne, sur Windows, macOS et Linux. Libre et gratuit.">
+<link rel="icon" href="favicon.png">
+<style>
+  :root {
+    --ink: #1B1F3B;
+    --paper: #FFF3E0;
+    --fold: #FF6B35;
+    --fold-text: #C84716;
+    --surface: #FFFCF7;
+    --muted: #5A5D73;
+    --line: #E7DCCB;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--surface);
+    color: var(--ink);
+    font: 17px/1.6 "Segoe UI", -apple-system, BlinkMacSystemFont, Inter, system-ui, sans-serif;
+  }
+  a { color: var(--fold-text); }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 16px; }
+  header { padding: 28px 0; }
+  header img { height: 40px; display: block; }
+  .hero > *, .features > * { min-width: 0; }
+  .hero { display: grid; grid-template-columns: 1fr 1.1fr; gap: 48px; align-items: center; padding: 32px 0 64px; }
+  h1 { font-size: clamp(2rem, 4vw, 2.9rem); line-height: 1.15; margin: 0 0 16px; letter-spacing: -0.01em; }
+  .lead { font-size: 1.15rem; color: var(--muted); margin: 0 0 28px; }
+  .downloads { display: flex; flex-wrap: wrap; gap: 10px; }
+  .button {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 12px 18px; border-radius: 10px; text-decoration: none; font-weight: 600;
+    border: 1px solid var(--line); color: var(--ink); background: #fff;
+  }
+  .button.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .button:hover { border-color: var(--ink); }
+  .note { font-size: 0.9rem; color: var(--muted); margin-top: 14px; }
+  .shot { width: 100%; border-radius: 12px; box-shadow: 0 18px 50px rgba(27, 31, 59, 0.18); border: 1px solid var(--line); display: block; }
+  section { padding: 56px 0; border-top: 1px solid var(--line); }
+  h2 { font-size: 1.6rem; margin: 0 0 24px; }
+  .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
+  .feature h3 { font-size: 1.05rem; margin: 0 0 6px; }
+  .feature h3::before { content: ""; display: inline-block; width: 10px; height: 10px; background: var(--fold); margin-right: 10px; clip-path: polygon(0 0, 100% 100%, 0 100%); }
+  .feature p { margin: 0; color: var(--muted); }
+  footer { padding: 32px 0 48px; color: var(--muted); font-size: 0.9rem; border-top: 1px solid var(--line); }
+  @media (max-width: 820px) {
+    .hero { grid-template-columns: 1fr; gap: 32px; }
+    .features { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><img src="logo.svg" alt="Recto"></header>
+
+  <div class="hero">
+    <div>
+      <h1>Vos PDF, lus et modifiés sur votre ordinateur.</h1>
+      <p class="lead">Recto ouvre vos PDF en lecture, et passe en édition d'un clic&nbsp;: annoter, signer, remplir, réorganiser les pages, caviarder. Tout reste sur votre machine, sans compte ni envoi en ligne.</p>
+      <div class="downloads">
+        <a class="button primary" href="downloads/Recto-windows-x64-setup.exe">Télécharger pour Windows</a>
+        <a class="button" href="downloads/Recto-macos.dmg">macOS</a>
+        <a class="button" href="downloads/Recto-x86_64.AppImage">Linux (AppImage)</a>
+      </div>
+      <p class="note">Libre et gratuit (licence MIT). Windows 10 et 11, macOS 11 et plus, Linux x86-64.</p>
+    </div>
+    <img class="shot" src="screenshot.png" alt="Recto en mode édition : une page annotée d'un cercle, d'une flèche, d'un tampon et d'une signature.">
+  </div>
+</div>
+
+<section>
+  <div class="wrap">
+    <h2>Ce que fait Recto</h2>
+    <div class="features">
+      <div class="feature"><h3>Lire</h3><p>Rendu fidèle, miniatures, signets, recherche et copie du texte, impression.</p></div>
+      <div class="feature"><h3>Annoter</h3><p>Texte, surlignage, formes, dessin à main levée, tampons, liens. Tout se déplace et se modifie après coup.</p></div>
+      <div class="feature"><h3>Signer et remplir</h3><p>Signature tracée, tapée ou en image&nbsp;; remplissage et création de champs de formulaire.</p></div>
+      <div class="feature"><h3>Organiser</h3><p>Fusionner, découper, extraire, pivoter, réordonner, recadrer, insérer des pages blanches.</p></div>
+      <div class="feature"><h3>Corriger</h3><p>Modifier le texte d'origine du PDF, rechercher et remplacer, couvrir en blanc, supprimer une image.</p></div>
+      <div class="feature"><h3>Protéger</h3><p>Caviardage réel (le contenu est retiré du fichier), mot de passe AES-256, métadonnées, compression, OCR.</p></div>
+    </div>
+  </div>
+</section>
+
+<div class="wrap">
+  <footer>Recto, par Evan Pluchart. Construit en Rust avec GPUI et PDFium. Les fichiers ouverts ne quittent jamais votre ordinateur.</footer>
+</div>
+</body>
+</html>

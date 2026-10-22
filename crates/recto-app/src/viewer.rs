@@ -488,6 +488,12 @@ impl Viewer {
     /// if it has one) and listens to it; page `page` (0-based) is shown once the layout exists.
     /// `known` holds what a background build already worked out for `bytes`; without it, the
     /// pages, their geometry and the form fields are read from `document` now.
+    /// Opens `path` asked by the system (macOS "Open with"), after confirmation if the current
+    /// document has unsaved changes.
+    pub fn open_file(&mut self, path: std::path::PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_path(path, 1, window, cx);
+    }
+
     fn start(
         &mut self,
         document: Document,

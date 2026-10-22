@@ -199,6 +199,10 @@ fn library_dirs() -> Vec<PathBuf> {
         dirs.push(PathBuf::from(dir));
     }
     if let Some(dir) = std::env::current_exe().ok().and_then(|exe| exe.parent().map(PathBuf::from)) {
+        // In a macOS app bundle, libraries live in `Contents/Frameworks`, beside `Contents/MacOS`.
+        if cfg!(target_os = "macos") {
+            dirs.push(dir.join("../Frameworks"));
+        }
         dirs.push(dir);
     }
     if cfg!(debug_assertions) {

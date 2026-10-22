@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Recto
+GenericName=PDF Viewer and Editor
+GenericName[fr]=Lecteur et éditeur PDF
+Comment=Read, annotate, sign and organize PDF files
+Comment[fr]=Lire, annoter, signer et organiser des PDF
+Exec=recto %f
+Icon=recto
+Terminal=false
+Categories=Office;Viewer;Graphics;
+MimeType=application/pdf;
+Keywords=PDF;annotate;sign;merge;split;

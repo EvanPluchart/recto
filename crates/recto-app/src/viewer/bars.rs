@@ -101,6 +101,7 @@ fn pages_menu() -> Vec<Entry> {
 
 fn document_menu() -> Vec<Entry> {
     vec![
+        Some(("printer", "Print…", "Ctrl+P", |v, w, cx| v.print(w, cx))),
         Some(("save", "Save as…", "Ctrl+Shift+S", |v, w, cx| v.save_as(w, cx))),
         Some(("download", "Export…", "", |v, w, cx| v.open_tool(ToolKind::Export, w, cx))),
         None,
@@ -222,13 +223,13 @@ impl Viewer {
             .on_click(cx.listener(|this, _, window, cx| this.toggle_annotations(window, cx)));
             let find = icon_button("find", "search", "Find (Ctrl+F)", self.search.open, true, theme)
                 .on_click(cx.listener(|this, _, window, cx| if this.search.open { this.close_search(window, cx) } else { this.open_search(window, cx) }));
+            // In edit mode, Print is in the Document menu: the bar has no room left.
             let print = icon_button("print", "printer", "Print (Ctrl+P)", self.printing.is_some(), true, theme)
                 .on_click(cx.listener(|this, _, window, cx| this.print(window, cx)));
             if editing {
                 bar = bar
                     .child(menu_button("pages-menu", "layers", "Pages", MenuKind::Pages))
                     .child(menu_button("document-menu", "file-text", "Document", MenuKind::Document))
-                    .child(print)
                     .child(annotations)
                     .child(find)
                     .child(separator(theme))

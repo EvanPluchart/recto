@@ -121,7 +121,18 @@ impl Args {
 
 fn main() {
     let args = Args::parse(std::env::args().skip(1));
-    Application::new().with_assets(assets::Assets).run(move |cx: &mut App| {
+    // Files the system asks to open (macOS: double-click in the Finder, "Open with"); elsewhere
+    // they come as arguments.
+    let (opened, to_open) = flume::unbounded::<PathBuf>();
+    let application = Application::new().with_assets(assets::Assets);
+    application.on_open_urls(move |urls| {
+        for url in urls {
+            if let Some(path) = url.strip_prefix("file://").map(percent_decoded) {
+                let _ = opened.send(PathBuf::from(path));
+            }
+        }
+    });
+    application.run(move |cx: &mut App| {
         viewer::bind_keys(cx);
         let bounds = Bounds::centered(None, size(px(900.), px(1000.)), cx);
         let options = WindowOptions {
@@ -130,11 +141,20 @@ fn main() {
             window_min_size: Some(size(px(320.), px(240.))),
             ..Default::default()
         };
-        if let Err(error) = cx.open_window(options, |window, cx| cx.new(|cx| Viewer::new(args, window, cx))) {
-            eprintln!("recto: cannot open a window: {error:#}");
-            cx.quit();
-            return;
-        }
+        let window = match cx.open_window(options, |window, cx| cx.new(|cx| Viewer::new(args, window, cx))) {
+            Ok(window) => window,
+            Err(error) => {
+                eprintln!("recto: cannot open a window: {error:#}");
+                cx.quit();
+                return;
+            }
+        };
+        cx.spawn(async move |cx| {
+            while let Ok(path) = to_open.recv_async().await {
+                window.update(cx, |viewer, window, cx| viewer.open_file(path, window, cx)).ok();
+            }
+        })
+        .detach();
         cx.on_window_closed(|cx| {
             if cx.windows().is_empty() {
                 cx.quit();
@@ -144,12 +164,39 @@ fn main() {
     });
 }
 
+/// `text` with its `%XX` escapes decoded (a `file://` URL's path).
+fn percent_decoded(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let hex = bytes.get(i + 1..i + 3).and_then(|pair| std::str::from_utf8(pair).ok()).and_then(|pair| u8::from_str_radix(pair, 16).ok());
+        match (bytes[i], hex) {
+            (b'%', Some(byte)) => {
+                out.push(byte);
+                i += 3;
+            }
+            (byte, _) => {
+                out.push(byte);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn parse(line: &str) -> Args {
         Args::parse(line.split_whitespace().map(str::to_owned))
+    }
+
+    #[test]
+    fn file_urls_are_decoded() {
+        assert_eq!(percent_decoded("/Users/a/Mon%20fichier%C3%A9.pdf"), "/Users/a/Mon fichier\u{e9}.pdf");
+        assert_eq!(percent_decoded("/a%2"), "/a%2");
     }
 
     #[test]
