@@ -39,7 +39,7 @@ const TOOL_GROUPS: [&[Tool]; 5] = [
     &[Tool::Select],
     &[Tool::Text, Tool::Highlight, Tool::Underline, Tool::StrikeOut],
     &[Tool::Rectangle, Tool::Ellipse, Tool::Line, Tool::Arrow, Tool::Freehand, Tool::Marker],
-    &[Tool::Image, Tool::Signature, Tool::Stamp],
+    &[Tool::Image, Tool::Signature, Tool::Stamp, Tool::Link],
     &[Tool::Redact, Tool::Erase, Tool::DeleteImage, Tool::Crop, Tool::EditText],
 ];
 
@@ -59,6 +59,7 @@ fn tool_icon(tool: Tool) -> &'static str {
         Tool::Image => "image",
         Tool::Signature => "signature",
         Tool::Stamp => "stamp",
+        Tool::Link => "link",
         Tool::Redact => "eye-off",
         Tool::Erase => "eraser",
         Tool::DeleteImage => "image-off",

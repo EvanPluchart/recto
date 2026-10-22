@@ -58,6 +58,15 @@ pub struct Raster {
 }
 
 
+/// Where a link leads.
+#[derive(Clone, Debug, PartialEq)]
+pub enum LinkTarget {
+    /// A web address (or any URI).
+    Uri(String),
+    /// A page of the document, by identity, so the link follows it when pages move.
+    Page(crate::PageId),
+}
+
 /// One drawing command of an `Outline`, in its unit box.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PathCommand {
@@ -158,6 +167,8 @@ pub enum Kind {
     Rectangle { rect: Rect },
     Ellipse { rect: Rect },
     Line { from: Point, to: Point, arrow: bool },
+    /// A link: clicking `rect` opens `target`. No appearance.
+    Link { rect: Rect, target: LinkTarget },
     /// A rubber stamp: `label` in bold capitals inside a rounded frame filling `rect`, upright
     /// like text.
     Label { rect: Rect, label: String, upright: u16 },
@@ -256,6 +267,7 @@ impl Annotation {
         match self.kind {
             Kind::Text { .. } => b"FreeText",
             Kind::Image { .. } | Kind::Shape { .. } | Kind::Label { .. } => b"Stamp",
+            Kind::Link { .. } => b"Link",
             Kind::Rectangle { .. } => b"Square",
             Kind::Ellipse { .. } => b"Circle",
             Kind::Line { .. } => b"Line",
@@ -274,6 +286,7 @@ impl Annotation {
             | Kind::Image { rect, .. }
             | Kind::Shape { rect, .. }
             | Kind::Label { rect, .. }
+            | Kind::Link { rect, .. }
             | Kind::Rectangle { rect }
             | Kind::Ellipse { rect } => *rect,
             Kind::Line { from, to, .. } => bounds([*from, *to], margin * 4.0 + 6.0),
@@ -292,6 +305,7 @@ impl Annotation {
             | Kind::Image { rect, .. }
             | Kind::Shape { rect, .. }
             | Kind::Label { rect, .. }
+            | Kind::Link { rect, .. }
             | Kind::Rectangle { rect }
             | Kind::Ellipse { rect } => *rect,
             Kind::Line { from, to, .. } => bounds([*from, *to], 0.0),
@@ -322,6 +336,7 @@ impl Annotation {
             Kind::Image { rect: r, image, upright } => Kind::Image { rect: rect(*r), image: image.clone(), upright: *upright },
             Kind::Shape { rect: r, outline, upright } => Kind::Shape { rect: rect(*r), outline: outline.clone(), upright: *upright },
             Kind::Label { rect: r, label, upright } => Kind::Label { rect: rect(*r), label: label.clone(), upright: *upright },
+            Kind::Link { rect: r, target } => Kind::Link { rect: rect(*r), target: target.clone() },
             Kind::Rectangle { rect: r } => Kind::Rectangle { rect: rect(*r) },
             Kind::Ellipse { rect: r } => Kind::Ellipse { rect: rect(*r) },
             Kind::Line { from, to, arrow } => Kind::Line { from: point(*from), to: point(*to), arrow: *arrow },
@@ -383,6 +398,17 @@ impl Annotation {
                 images.set("Im0", Object::Reference(add_image(document, image)));
                 resources.set("XObject", Object::Dictionary(images));
                 content.save_state().transform([width, 0.0, 0.0, height, 0.0, 0.0]).x_object(Name(b"Im0")).restore_state();
+            }
+            Kind::Link { target, .. } => {
+                // No border; the destination of a page link is set by the build, which knows
+                // where that page is.
+                annotation.set("Border", Object::Array(vec![0.into(), 0.into(), 0.into()]));
+                if let LinkTarget::Uri(uri) = target {
+                    let mut action = Dictionary::new();
+                    action.set("S", Object::Name(b"URI".to_vec()));
+                    action.set("URI", Object::string_literal(uri.as_bytes().to_vec()));
+                    annotation.set("A", Object::Dictionary(action));
+                }
             }
             Kind::Label { label, upright, .. } => {
                 annotation.set("Contents", text_string(label));

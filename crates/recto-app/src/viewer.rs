@@ -22,6 +22,7 @@ mod bars;
 mod dialog;
 mod edit;
 mod forms;
+mod links;
 mod ocr;
 mod pick;
 mod replace;
@@ -399,6 +400,10 @@ impl Viewer {
             Some("split") => viewer.open_dialog(DialogKind::Split(SplitMode::Ranges), window, cx),
             Some("signature") => viewer.open_signature_dialog(window, cx),
             Some("stamp") => viewer.open_stamp(0, recto_core::geom::Point { x: 72.0, y: 72.0 }, window, cx),
+            Some("link") => {
+                let area = recto_core::geom::Rect { origin: recto_core::geom::Point { x: 72.0, y: 700.0 }, width: 200.0, height: 20.0 };
+                viewer.open_link(0, area, window, cx)
+            }
             _ => {}
         }
         if let Some(query) = args.find {

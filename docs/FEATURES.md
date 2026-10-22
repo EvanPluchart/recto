@@ -44,5 +44,5 @@ Legend: milestone where it lands, or `later` / `no`.
 | Text | Find and replace | done (edit mode, search bar): exact matches in editable lines, rewritten like Edit text |
 | Annotate | Freehand highlighter, hide annotations | done: Highlighter tool (translucent, multiplied ink), a toggle in the app bar draws pages without annotations and form fields |
 | Annotate | Stamps placed by hand ("DRAFT", "PAID") | done: Stamp tool, eight ready-made stamps or free text, bold capitals in a rounded frame |
-| Links | Add and edit links | missing |
+| Links | Add and edit links | done: Link tool (area to a web address or a page, which the link follows when pages move), links of the file and of Recto followed with the Select tool (web links after asking); links of the file cannot be edited |
 | Forms | Symbols (✕ ✓ •), create fields, detect fields, tab order | missing |

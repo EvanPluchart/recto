@@ -15,7 +15,7 @@ use crate::PageId;
 use crate::security::{Security, SecurityError};
 use crate::textedit::{EditError, TextEdit, TextRun};
 use crate::textlayer::TextLayer;
-use crate::{annot, compress, embed, form, gray, redact, stamp, textedit, textlayer};
+use crate::{annot, compress, embed, form, gray, links, redact, stamp, textedit, textlayer};
 use crate::geom::{PageGeometry, Point, Rect};
 use crate::document::{Document, Source};
 use crate::op::{Op, PageState};
@@ -189,7 +189,21 @@ impl Document {
                 Op::AddAnnotation { annotation, .. } => {
                     // As moved, resized or deleted since.
                     if let Some(annotation) = self.current_annotation(self.op_ids()[serial], annotation) {
+                        // A link to a page that is not in this output is left out.
+                        let destination = match &annotation.kind {
+                            annot::Kind::Link { target: annot::LinkTarget::Page(target), .. } => {
+                                match pages.iter().any(|state| state.id == *target).then(|| objects.get(target)).flatten() {
+                                    Some(&object) => Some(object),
+                                    None => continue,
+                                }
+                            }
+                            _ => None,
+                        };
                         let written = annotation.write(&mut base, id, serial);
+                        if let Some(object) = destination {
+                            let fit = Object::Name(b"Fit".to_vec());
+                            base.get_dictionary_mut(written)?.set("Dest", Object::Array(vec![Object::Reference(object), fit]));
+                        }
                         annot::attach(&mut base, id, written)?;
                     }
                 }
@@ -468,6 +482,25 @@ impl Document {
                 let text = run.text.replace(query, replacement);
                 let fits = textedit::fits(document, id, run.first, &text);
                 found.push(Replacement { page: page.id, run, text, fits });
+            }
+        }
+        Ok(found)
+    }
+
+    /// The links of `page`: those of its file, then those added in Recto, in user space.
+    pub fn links(&self, page: PageId) -> Result<Vec<(Rect, annot::LinkTarget)>, BuildError> {
+        let mut found = Vec::new();
+        let source = &self.sources()[page.source as usize];
+        if let Source::File { .. } = source {
+            let document = load(source)?;
+            let ids: Vec<ObjectId> = document.get_pages().into_values().collect();
+            if let Some(&id) = ids.get(page.index as usize) {
+                found = links::read(&document, id, &ids, page.source);
+            }
+        }
+        for (_, annotation) in self.annotations(page) {
+            if let annot::Kind::Link { rect, target } = annotation.kind {
+                found.push((rect, target));
             }
         }
         Ok(found)
@@ -879,6 +912,29 @@ mod tests {
         // Undo brings the deleted one back.
         document.undo();
         assert_eq!(document.annotations(id(0)).len(), 2);
+    }
+
+    #[test]
+    fn links_round_trip_and_follow_their_page() {
+        use crate::annot::{Annotation, Color, Kind, LinkTarget};
+        let rect = |x, y| Rect { origin: Point { x, y }, width: 100.0, height: 20.0 };
+        let link = |rect, target| Annotation { kind: Kind::Link { rect, target }, color: Color::BLUE, width: 1.0 };
+        let mut document = open("sample.pdf");
+        document.apply(Op::AddAnnotation { page: id(0), annotation: link(rect(50.0, 50.0), LinkTarget::Uri("https://example.org".into())) });
+        document.apply(Op::AddAnnotation { page: id(0), annotation: link(rect(50.0, 100.0), LinkTarget::Page(id(2))) });
+        // A link to a deleted page is left out.
+        document.apply(Op::AddAnnotation { page: id(0), annotation: link(rect(50.0, 150.0), LinkTarget::Page(id(1))) });
+        document.apply(Op::DeletePages { pages: vec![id(1)] });
+        // The target moves first: the link follows it.
+        document.apply(Op::MovePages { pages: vec![id(2)], to: 0 });
+        assert_eq!(document.links(id(0)).unwrap().len(), 3, "Recto links before building");
+
+        let reopened = Document::from_bytes(document.build().unwrap()).unwrap();
+        // Page 2 of the output is the original page 1.
+        let links = reopened.links(id(1)).unwrap();
+        assert_eq!(links.len(), 2);
+        assert_eq!(links[0], (rect(50.0, 50.0), LinkTarget::Uri("https://example.org".into())));
+        assert_eq!(links[1], (rect(50.0, 100.0), LinkTarget::Page(id(0))));
     }
     #[test]
     fn subsets_and_errors() {

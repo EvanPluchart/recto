@@ -12,6 +12,7 @@ pub mod form;
 pub mod geom;
 pub mod gray;
 pub mod layout;
+pub mod links;
 pub mod meta;
 pub mod op;
 pub mod redact;

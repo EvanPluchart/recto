@@ -36,6 +36,7 @@ icons![
     "image-off",
     "info",
     "layers",
+    "link",
     "list",
     "maximize-2",
     "message-square",

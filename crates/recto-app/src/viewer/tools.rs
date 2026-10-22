@@ -7,6 +7,8 @@ use recto_core::BuildOptions;
 use recto_core::meta::Metadata;
 use recto_core::op::Op;
 use recto_core::security::{Allowed, Protection, Security};
+use recto_core::PageId;
+use recto_core::annot::LinkTarget;
 use recto_core::stamp::{Position, Stamp};
 
 use super::Viewer;
@@ -22,6 +24,8 @@ pub enum ToolKind {
     Export,
     /// A rubber stamp placed where the page was clicked.
     Stamp,
+    /// A link over an area drawn on a page.
+    Link,
 }
 
 /// Toggles of the forms, by meaning.
@@ -76,6 +80,7 @@ enum Field {
     Keywords,
     OpenPassword,
     OwnerPassword,
+    Destination,
 }
 
 impl Field {
@@ -91,6 +96,7 @@ impl Field {
             Field::Keywords => "Keywords",
             Field::OpenPassword => "Password to open",
             Field::OwnerPassword => "Password to change permissions",
+            Field::Destination => "Destination",
         }
     }
 }
@@ -115,6 +121,8 @@ pub struct ToolDialog {
     position: Position,
     /// For stamps: the displayed page and the point clicked.
     at: Option<(usize, recto_core::geom::Point)>,
+    /// For links: the displayed page and the area, in user space.
+    area: Option<(usize, recto_core::geom::Rect)>,
     error: Option<SharedString>,
 }
 
@@ -168,6 +176,7 @@ impl Viewer {
                 Position::Center,
             ),
             ToolKind::Stamp => (vec![(Field::Text, t(STAMPS[0]).to_owned())], Vec::new(), Position::Center),
+            ToolKind::Link => (vec![(Field::Destination, String::new())], Vec::new(), Position::Center),
             ToolKind::Export => {
                 let mut flags = vec![(Flag::Compress, true), (Flag::Grayscale, false)];
                 if has_fields {
@@ -208,7 +217,7 @@ impl Viewer {
         if let Some((_, first)) = fields.iter().find(|(field, _)| !matches!(field, Field::OpenPassword | Field::OwnerPassword)) {
             first.update(cx, |input, cx| input.focus_all(window, cx));
         }
-        self.tool_dialog = Some(ToolDialog { kind, fields, flags, position, at: None, error: None });
+        self.tool_dialog = Some(ToolDialog { kind, fields, flags, position, at: None, area: None, error: None });
         cx.notify();
     }
 
@@ -238,6 +247,10 @@ impl Viewer {
                 Ok(())
             }
             ToolKind::Export => self.export_options(dialog, cx).map(|options| self.export(options, window, cx)),
+            ToolKind::Link => {
+                let (target, area) = (dialog.text(Field::Destination, cx), dialog.area);
+                self.place_link(target, area, window, cx)
+            }
             ToolKind::Stamp => {
                 let (label, at) = (dialog.text(Field::Text, cx), dialog.at);
                 self.place_stamp(label, at, window, cx)
@@ -314,6 +327,7 @@ impl Viewer {
             ToolKind::Properties => ("Document properties", "Shown by readers and file browsers."),
             ToolKind::Export => ("Export", "Saves a copy with these options; the open document does not change."),
             ToolKind::Stamp => ("Stamp", "Click a stamp, or type your own text."),
+            ToolKind::Link => ("Link", "A web address (https://…) or a page number."),
         };
         let chip = |id: SharedString, label: &'static str, active: bool| {
             div()
@@ -502,5 +516,58 @@ impl Viewer {
         let annotation = recto_core::annot::Annotation { kind, color: self.inspector.color, width: 2.0 };
         self.edit(Op::AddAnnotation { page: id, annotation }, window, cx);
         Ok(())
+    }
+}
+
+/// What was typed for a link: a page number of the document (1-based, within `pages`) or an
+/// address; a bare domain gets `https://`.
+fn link_target(text: &str, pages: usize) -> Option<LinkTarget> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    if let Ok(page) = text.parse::<usize>() {
+        return (1..=pages).contains(&page).then(|| LinkTarget::Page(PageId { source: u32::MAX, index: page as u32 - 1 }));
+    }
+    let uri = if text.contains("://") || text.starts_with("mailto:") || text.starts_with("tel:") { text.to_owned() } else { format!("https://{text}") };
+    Some(LinkTarget::Uri(uri))
+}
+
+impl Viewer {
+    /// Opens the link form for `area` (user space) of displayed page `page`.
+    pub(super) fn open_link(&mut self, page: usize, area: recto_core::geom::Rect, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_tool(ToolKind::Link, window, cx);
+        if let Some(dialog) = &mut self.tool_dialog {
+            dialog.area = Some((page, area));
+        }
+    }
+
+    fn place_link(&mut self, text: String, area: Option<(usize, recto_core::geom::Rect)>, window: &mut Window, cx: &mut Context<Self>) -> Result<(), String> {
+        let Some((page, rect)) = area else { return Ok(()) };
+        let order = self.page_order();
+        let target = match link_target(&text, order.len()) {
+            // A page number becomes that page's identity, so the link follows it.
+            Some(LinkTarget::Page(PageId { index, .. })) => LinkTarget::Page(order[index as usize]),
+            Some(target) => target,
+            None => return Err(t("Enter an address or a page number.").to_owned()),
+        };
+        let Some(&id) = order.get(page) else { return Ok(()) };
+        let annotation = recto_core::annot::Annotation { kind: recto_core::annot::Kind::Link { rect, target }, color: self.inspector.color, width: 1.0 };
+        self.edit(Op::AddAnnotation { page: id, annotation }, window, cx);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_link_targets() {
+        assert_eq!(link_target("example.org/a", 3), Some(LinkTarget::Uri("https://example.org/a".into())));
+        assert_eq!(link_target("mailto:a@b.c", 3), Some(LinkTarget::Uri("mailto:a@b.c".into())));
+        assert!(matches!(link_target("2", 3), Some(LinkTarget::Page(PageId { index: 1, .. }))));
+        assert_eq!(link_target("9", 3), None);
+        assert_eq!(link_target("  ", 3), None);
     }
 }

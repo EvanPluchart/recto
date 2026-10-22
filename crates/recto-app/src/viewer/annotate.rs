@@ -36,6 +36,8 @@ pub enum Tool {
     Signature,
     /// A rubber stamp ("APPROVED") where the page is clicked.
     Stamp,
+    /// A link over a dragged area.
+    Link,
     /// Removes what lies under a dragged area.
     Redact,
     /// Erases what lies under a dragged area (white).
@@ -49,7 +51,7 @@ pub enum Tool {
 }
 
 impl Tool {
-    pub const ALL: [Tool; 19] = [
+    pub const ALL: [Tool; 20] = [
         Tool::Select,
         Tool::Text,
         Tool::Highlight,
@@ -64,6 +66,7 @@ impl Tool {
         Tool::Image,
         Tool::Signature,
         Tool::Stamp,
+        Tool::Link,
         Tool::Redact,
         Tool::Erase,
         Tool::DeleteImage,
@@ -88,6 +91,7 @@ impl Tool {
             Tool::Image => "image",
             Tool::Signature => "signature",
             Tool::Stamp => "stamp",
+            Tool::Link => "link",
             Tool::Redact => "redact",
             Tool::Erase => "erase",
             Tool::DeleteImage => "deleteimage",
@@ -116,6 +120,7 @@ impl Tool {
             Tool::Image => "Image",
             Tool::Signature => "Sign",
             Tool::Stamp => "Stamp",
+            Tool::Link => "Link",
             Tool::Redact => "Redact",
             Tool::Erase => "Erase",
             Tool::DeleteImage => "Delete an image",
@@ -222,7 +227,7 @@ impl Viewer {
     }
 
     pub(super) fn on_pointer_down(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        if self.pick_at(event, cx) {
+        if self.pick_at(event, cx) || (self.tool == Tool::Select && self.follow_link(event, window, cx)) {
             return;
         }
         if self.tool.selects_text() {
@@ -302,6 +307,10 @@ impl Viewer {
         let (Some(&first), Some(&last)) = (points.first(), points.last()) else { return };
         let area = span(first, last);
         let tiny = area.width < 3.0 && area.height < 3.0;
+        if !tiny && self.tool == Tool::Link {
+            let area = geometry.rect_to_user(area);
+            return self.open_link(page, area, window, cx);
+        }
         if !tiny && matches!(self.tool, Tool::Redact | Tool::Erase | Tool::Crop) {
             let area = geometry.rect_to_user(area);
             let Some(id) = self.open().and_then(|open| open.page_states.get(page)).map(|state| state.id) else { return };
@@ -497,7 +506,7 @@ impl Viewer {
                 move |bounds, _, window, _| {
                     let at = |p: Point| point(bounds.origin.x + px(p.x * zoom), bounds.origin.y + px(p.y * zoom));
                     let (Some(&first), Some(&last)) = (points.first(), points.last()) else { return };
-                    if matches!(tool, Tool::Redact | Tool::Erase | Tool::Crop) {
+                    if matches!(tool, Tool::Redact | Tool::Erase | Tool::Crop | Tool::Link) {
                         let r = span(first, last);
                         let mut fill = PathBuilder::fill();
                         fill.move_to(at(Point { x: r.x, y: r.y }));
