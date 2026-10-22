@@ -154,8 +154,8 @@ impl Known {
     /// Read from `document` (as it is now) with lopdf.
     fn of(document: &Document) -> Self {
         let pages = document.pages();
-        let geometry = document.geometry_of(&pages).unwrap_or_default();
-        Known::with(document, pages, geometry, document.form_fields().unwrap_or_default())
+        let (geometry, fields) = document.geometry_and_fields(&pages).unwrap_or_default();
+        Known::with(document, pages, geometry, fields)
     }
 
     fn with(document: &Document, pages: Vec<PageState>, geometry: Vec<PageGeometry>, fields: Vec<FormField>) -> Self {

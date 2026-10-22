@@ -99,9 +99,25 @@ impl Document {
 
     /// The form fields of the opened file, with the values filled so far.
     pub fn form_fields(&self) -> Result<Vec<form::FormField>, BuildError> {
-        let base = load(&self.sources()[0])?;
+        Ok(self.form_fields_in(&load(&self.sources()[0])?))
+    }
+
+    /// How each of `pages` is shown, and the form fields: `geometry_of` and `form_fields`, reading
+    /// the opened file once.
+    pub fn geometry_and_fields(&self, pages: &[PageState]) -> Result<(Vec<PageGeometry>, Vec<form::FormField>), BuildError> {
+        let mut loaded = HashMap::new();
+        let geometry = self.geometry_in(pages, &mut loaded)?;
+        let fields = match loaded.get(&0) {
+            Some((base, _)) => self.form_fields_in(base),
+            None => self.form_fields_in(&load(&self.sources()[0])?),
+        };
+        Ok((geometry, fields))
+    }
+
+    /// The form fields of `base` (the opened file, parsed), with the values filled so far.
+    fn form_fields_in(&self, base: &lopdf::Document) -> Vec<form::FormField> {
         let filled = self.filled_values();
-        let mut fields = form::fields(&base, 0);
+        let mut fields = form::fields(base, 0);
         for field in &mut fields {
             if let Some(value) = filled.get(&field.name) {
                 field.value = value.clone();
@@ -129,7 +145,7 @@ impl Document {
                 }),
             }
         }
-        Ok(fields)
+        fields
     }
 
     fn build_pages_with(&self, pages: &[PageState], options: &BuildOptions) -> Result<Vec<u8>, BuildError> {
@@ -583,7 +599,11 @@ impl Document {
 
     /// How each of `pages` is shown.
     pub fn geometry_of(&self, pages: &[PageState]) -> Result<Vec<PageGeometry>, BuildError> {
-        let mut loaded: HashMap<u32, (lopdf::Document, Vec<ObjectId>)> = HashMap::new();
+        self.geometry_in(pages, &mut HashMap::new())
+    }
+
+    /// `geometry_of`, keeping the files it parsed in `loaded` (by source).
+    fn geometry_in(&self, pages: &[PageState], loaded: &mut HashMap<u32, (lopdf::Document, Vec<ObjectId>)>) -> Result<Vec<PageGeometry>, BuildError> {
         let mut geometry = Vec::with_capacity(pages.len());
         for page in pages {
             let source = &self.sources()[page.id.source as usize];
