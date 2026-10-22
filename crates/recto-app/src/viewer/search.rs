@@ -79,7 +79,7 @@ impl Viewer {
         self.search.query = query;
     }
 
-    fn close_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn close_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.search.open = false;
         self.search.hits.clear();
         self.search.current = None;
@@ -222,16 +222,6 @@ impl Viewer {
             let more = if search.scan_next < pages { "+" } else { "" };
             format!("{} / {}{more}", search.current.map_or(0, |i| i + 1), search.hits.len()).into()
         };
-        let button = |id: &'static str, label: &'static str| {
-            div()
-                .id(id)
-                .px(px(8.))
-                .py(px(2.))
-                .rounded(px(4.))
-                .cursor_pointer()
-                .hover(move |style| style.bg(theme.hover))
-                .child(t(label))
-        };
         Some(
             div()
                 .flex()
@@ -246,11 +236,12 @@ impl Viewer {
                 .border_color(theme.border)
                 .text_color(theme.text)
                 .text_sm()
-                .child(div().w(px(240.)).child(search.input.clone()))
+                .child(gpui::svg().path(crate::assets::icon("search")).size(px(14.)).text_color(theme.muted))
+                .child(div().w(px(260.)).child(search.input.clone()))
                 .child(div().min_w(px(72.)).text_color(theme.muted).child(status))
-                .child(button("search-previous", "Previous").on_click(cx.listener(|this, _, window, cx| this.step_hit(false, window, cx))))
-                .child(button("search-next", "Next").on_click(cx.listener(|this, _, window, cx| this.step_hit(true, window, cx))))
-                .child(button("search-close", "Close").on_click(cx.listener(|this, _, window, cx| this.close_search(window, cx))))
+                .child(crate::chrome::icon_button("search-previous", "chevron-left", "Previous (Shift+F3)", false, true, theme).on_click(cx.listener(|this, _, window, cx| this.step_hit(false, window, cx))))
+                .child(crate::chrome::icon_button("search-next", "chevron-right", "Next (F3)", false, true, theme).on_click(cx.listener(|this, _, window, cx| this.step_hit(true, window, cx))))
+                .child(crate::chrome::icon_button("search-close", "x", "Close (Esc)", false, true, theme).on_click(cx.listener(|this, _, window, cx| this.close_search(window, cx))))
                 .into_any_element(),
         )
     }

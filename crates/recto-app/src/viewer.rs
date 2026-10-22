@@ -18,6 +18,7 @@ use recto_render::{Bitmap, DocInfo, PageText, PdfiumRenderer, Purpose, RenderReq
 
 mod files;
 mod annotate;
+mod bars;
 mod dialog;
 mod edit;
 mod forms;
@@ -35,10 +36,12 @@ mod tools;
 pub use self::sidebar::Tab;
 pub use self::edit::{EditSpec, parse_edits};
 pub use self::annotate::Tool;
+pub use self::bars::MenuKind;
 use self::annotate::{Inspector, Sketch, TextDraft};
 use self::dialog::{Dialog, DialogKind};
 use self::forms::FieldEditor;
 use self::signature::SignatureDialog;
+
 use self::ocr::OcrJob;
 use self::textedit::EditDraft;
 use self::tools::{ToolDialog, ToolKind};
@@ -58,11 +61,13 @@ actions!(
     [
         ZoomIn, ZoomOut, ActualSize, FitWidth, FitPage, GoToPage, LineDown, LineUp, ScreenDown, ScreenUp, FirstPage,
         LastPage, ToggleThumbnails, ToggleOutline, Find, FindNext, FindPrevious, CopySelection, OpenFile, Undo, Redo,
-        Save, SaveAs, RotateLeft, RotateRight, DeletePages, InsertBlank, InsertFile, Extract, Split
+        Save, SaveAs, RotateLeft, RotateRight, DeletePages, InsertBlank, InsertFile, Extract, Split, CloseMenu
     ]
 );
 
-const TOOLBAR_HEIGHT: f32 = 40.0;
+const TOOLBAR_HEIGHT: f32 = 44.0;
+/// Height of the tool bar under it, for the first layout.
+const TOOL_BAR_HEIGHT: f32 = 40.0;
 /// Arrow-key scroll step, in logical pixels.
 const LINE: f32 = 48.0;
 /// Pages rendered beyond the viewport, in viewport heights, so scrolling finds them ready.
@@ -293,6 +298,9 @@ pub struct Viewer {
     tool_dialog: Option<ToolDialog>,
     /// Text being edited with the Edit text tool.
     edit_draft: Option<EditDraft>,
+    /// The open menu, and the last one closed by a click outside (with when).
+    menu: Option<MenuKind>,
+    menu_closed: Option<(MenuKind, std::time::Instant)>,
     /// Text recognition in progress, and the engine once loaded.
     ocr: Option<OcrJob>,
     ocr_engine: Option<Arc<recto_ocr::Engine>>,
@@ -344,6 +352,8 @@ impl Viewer {
             timing: None,
             tool_dialog: None,
             edit_draft: None,
+            menu: args.menu,
+            menu_closed: None,
             ocr: None,
             ocr_engine: None,
         };
@@ -364,6 +374,16 @@ impl Viewer {
         if args.ocr {
             let pages = viewer.page_order();
             viewer.recognize(pages, window, cx);
+        }
+        match args.dialog.as_deref() {
+            Some("export") => viewer.open_tool(ToolKind::Export, window, cx),
+            Some("watermark") => viewer.open_tool(ToolKind::Watermark, window, cx),
+            Some("numbers") => viewer.open_tool(ToolKind::PageNumbers, window, cx),
+            Some("header") => viewer.open_tool(ToolKind::HeaderFooter, window, cx),
+            Some("properties") => viewer.open_tool(ToolKind::Properties, window, cx),
+            Some("extract") => viewer.open_dialog(DialogKind::Extract, window, cx),
+            Some("split") => viewer.open_dialog(DialogKind::Split(SplitMode::Ranges), window, cx),
+            _ => {}
         }
         if let Some(query) = args.find {
             viewer.preset_search(query, cx);
@@ -533,7 +553,7 @@ impl Viewer {
             Size { width: f32::from(bounds.size.width), height: f32::from(bounds.size.height) }
         } else {
             let size = window.viewport_size();
-            Size { width: (f32::from(size.width) - self.sidebar.width()).max(1.0), height: (f32::from(size.height) - TOOLBAR_HEIGHT).max(1.0) }
+            Size { width: (f32::from(size.width) - self.sidebar.width()).max(1.0), height: (f32::from(size.height) - TOOLBAR_HEIGHT - TOOL_BAR_HEIGHT).max(1.0) }
         }
     }
 
@@ -749,73 +769,6 @@ impl Viewer {
         }
     }
 
-    fn toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = self.theme;
-        let (page_count, zoom_label) = match self.open().and_then(|open| open.info.as_ref().zip(open.layout.as_ref())) {
-            Some((info, layout)) => (Some(info.page_count()), format!("{:.0} %", layout.zoom * 100.0)),
-            None => (None, String::new()),
-        };
-        let page_field = page_count.map(|count| {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .px(px(8.))
-                .text_color(theme.muted)
-                .child(t("Page"))
-                .child(div().w(px(52.)).text_color(theme.text).child(self.page_input.clone()))
-                .child(format!("/ {count}"))
-        });
-        let button = |id: &'static str, label: &'static str| {
-            div()
-                .id(id)
-                .px(px(10.))
-                .py(px(4.))
-                .rounded(px(4.))
-                .cursor_pointer()
-                .hover(move |style| style.bg(theme.hover))
-                .child(t(label))
-        };
-        div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(4.))
-            .h(px(TOOLBAR_HEIGHT))
-            .px(px(8.))
-            .bg(theme.toolbar)
-            .border_b_1()
-            .border_color(theme.border)
-            .text_color(theme.text)
-            .text_sm()
-            .child(button("open", "Open…").on_click(cx.listener(|this, _, window, cx| this.prompt_open(window, cx))))
-            .child(button("recent", "Recent").on_click(cx.listener(|this, _, _, cx| {
-                this.recent = recent::load();
-                this.recent_menu = true;
-                cx.notify();
-            })))
-            .child(
-                button("sidebar", "Sidebar")
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(Tab::Thumbnails, cx))),
-            )
-            // Zoom controls only mean something with a document.
-            .when(page_count.is_some(), |bar| {
-                bar.child(button("zoom-out", "−").on_click(cx.listener(|this, _, window, cx| this.step_zoom(false, window, cx))))
-                    .child(div().w(px(56.)).flex().justify_center().child(zoom_label))
-                    .child(button("zoom-in", "+").on_click(cx.listener(|this, _, window, cx| this.step_zoom(true, window, cx))))
-                    .child(
-                        button("fit-width", "Fit width")
-                            .on_click(cx.listener(|this, _, window, cx| this.set_zoom(ZoomMode::FitWidth, None, window, cx))),
-                    )
-                    .child(
-                        button("fit-page", "Fit page")
-                            .on_click(cx.listener(|this, _, window, cx| this.set_zoom(ZoomMode::FitPage, None, window, cx))),
-                    )
-            })
-            .child(div().flex_1())
-            .children(page_field)
-    }
-
     fn pages(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = self.theme;
         let message = |text: SharedString| {
@@ -967,6 +920,11 @@ impl Render for Viewer {
             .on_action(cx.listener(|this, _: &FirstPage, window, cx| this.go_to_page(0, window, cx)))
             .on_action(cx.listener(|this, _: &LastPage, window, cx| this.go_to_page(usize::MAX, window, cx)))
             .on_action(cx.listener(|this, _: &OpenFile, window, cx| this.prompt_open(window, cx)))
+            .on_action(cx.listener(|this, _: &CloseMenu, _, cx| {
+                this.menu = None;
+                this.recent_menu = false;
+                cx.notify();
+            }))
             .on_action(cx.listener(|this, _: &Undo, window, cx| this.undo(window, cx)))
             .on_action(cx.listener(|this, _: &Redo, window, cx| this.redo(window, cx)))
             .on_action(cx.listener(|this, _: &Save, window, cx| this.save(window, cx)))
@@ -987,165 +945,65 @@ impl Render for Viewer {
             .flex()
             .flex_col()
             .bg(theme.canvas)
-            .child(self.toolbar(cx))
-            .children(self.page_tools(cx))
-            .children(self.annotate_bar(cx))
-            .children(self.tools_bar(cx))
-            .children(self.notice_bar(cx))
+            .child(self.app_bar(cx))
+            .children(self.tool_bar(cx))
             .children(self.search_bar(cx))
             .child(div().flex().flex_1().min_h_0().children(self.sidebar(window, cx)).child(self.pages(window, cx)))
             .children(self.recent_menu(cx))
             .children(self.dialog_view(cx))
             .children(self.signature_view(cx))
             .children(self.tool_view(cx))
+            .children(self.notice_toast(cx))
     }
 }
 
 impl Viewer {
-    /// Second toolbar row: edit history, page operations, files.
-    fn page_tools(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let open = self.open()?;
-        open.info.as_ref()?;
-        let theme = self.theme;
-        let (can_undo, can_redo) = (open.document.can_undo(), open.document.can_redo());
-        let button = |id: &'static str, label: &'static str, enabled: bool| {
-            div()
-                .id(id)
-                .px(px(8.))
-                .py(px(3.))
-                .rounded(px(4.))
-                .when(enabled, |b| b.cursor_pointer().hover(move |s| s.bg(theme.hover)))
-                .when(!enabled, |b| b.text_color(theme.muted))
-                .child(t(label))
-        };
-        let separator = || div().w(px(1.)).h(px(18.)).mx(px(4.)).bg(theme.border);
-        Some(
-            div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(px(2.))
-                .flex_wrap()
-                .min_h(px(34.))
-                .py(px(3.))
-                .px(px(8.))
-                .bg(theme.toolbar)
-                .border_b_1()
-                .border_color(theme.border)
-                .text_color(theme.text)
-                .text_sm()
-                .child(button("undo", "Undo", can_undo).on_click(cx.listener(|this, _, window, cx| this.undo(window, cx))))
-                .child(button("redo", "Redo", can_redo).on_click(cx.listener(|this, _, window, cx| this.redo(window, cx))))
-                .child(separator())
-                .child(
-                    button("rotate-left", "Rotate left", true)
-                        .on_click(cx.listener(|this, _, window, cx| this.rotate(Rotation::R270, window, cx))),
-                )
-                .child(
-                    button("rotate-right", "Rotate right", true)
-                        .on_click(cx.listener(|this, _, window, cx| this.rotate(Rotation::R90, window, cx))),
-                )
-                .child(button("delete", "Delete", true).on_click(cx.listener(|this, _, window, cx| this.delete_pages(window, cx))))
-                .child(button("blank", "Blank page", true).on_click(cx.listener(|this, _, window, cx| this.insert_blank(window, cx))))
-                .child(
-                    button("insert-file", "Insert file…", true)
-                        .on_click(cx.listener(|this, _, window, cx| this.prompt_insert_files(window, cx))),
-                )
-                .child(separator())
-                .child(
-                    button("extract", "Extract…", true)
-                        .on_click(cx.listener(|this, _, window, cx| this.open_dialog(DialogKind::Extract, window, cx))),
-                )
-                .child(button("split", "Split…", true).on_click(cx.listener(|this, _, window, cx| {
-                    this.open_dialog(DialogKind::Split(SplitMode::Ranges), window, cx)
-                })))
-                .child(div().flex_1())
-                .child(button("save", "Save", open.document.is_modified()).on_click(cx.listener(|this, _, window, cx| this.save(window, cx))))
-                .child(button("save-as", "Save as…", true).on_click(cx.listener(|this, _, window, cx| this.save_as(window, cx))))
-                .into_any_element(),
-        )
-    }
-
-    /// Fourth toolbar row: document tools.
-    fn tools_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let open = self.open()?;
-        open.info.as_ref()?;
-        let theme = self.theme;
-        let busy = self.ocr.is_some();
-        let button = |id: &'static str, label: &'static str, enabled: bool| {
-            div()
-                .id(id)
-                .px(px(8.))
-                .py(px(3.))
-                .rounded(px(4.))
-                .when(enabled, |b| b.cursor_pointer().hover(move |s| s.bg(theme.hover)))
-                .when(!enabled, |b| b.text_color(theme.muted))
-                .child(t(label))
-        };
-        let tool = |id: &'static str, label: &'static str, kind: ToolKind| {
-            button(id, label, true).on_click(cx.listener(move |this, _, window, cx| this.open_tool(kind, window, cx)))
-        };
-        Some(
-            div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(px(2.))
-                .flex_wrap()
-                .min_h(px(34.))
-                .py(px(3.))
-                .px(px(8.))
-                .bg(theme.toolbar)
-                .border_b_1()
-                .border_color(theme.border)
-                .text_color(theme.text)
-                .text_sm()
-                .child(tool("watermark", "Watermark…", ToolKind::Watermark))
-                .child(tool("page-numbers", "Page numbers…", ToolKind::PageNumbers))
-                .child(tool("header-footer", "Header or footer…", ToolKind::HeaderFooter))
-                .child(tool("properties", "Properties…", ToolKind::Properties))
-                .child(div().w(px(1.)).h(px(18.)).mx(px(4.)).bg(theme.border))
-                .child(button("ocr", "Recognize text", !busy).on_click(cx.listener(|this, _, window, cx| {
-                    // The pages selected in the rail, else every page.
-                    let order = this.page_order();
-                    let selected = this.rail.in_order(&order);
-                    this.recognize(if selected.is_empty() { order } else { selected }, window, cx);
-                })))
-                .child(div().flex_1())
-                .child(tool("export", "Export…", ToolKind::Export))
-                .into_any_element(),
-        )
-    }
-
-    /// The latest notice, with a button to dismiss it.
-    fn notice_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    /// The latest notice, floating at the bottom of the window, with a button to dismiss it.
+    fn notice_toast(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let notice = self.notice.clone()?;
         let theme = self.theme;
         Some(
             div()
+                .absolute()
+                .bottom(px(20.))
+                .left_0()
+                .right_0()
                 .flex()
-                .flex_none()
-                .items_center()
-                .gap(px(8.))
-                .px(px(12.))
-                .py(px(6.))
-                .bg(theme.field)
-                .border_b_1()
-                .border_color(theme.border)
-                .text_sm()
-                .text_color(theme.text)
-                .child(div().flex_1().child(notice))
+                .justify_center()
                 .child(
                     div()
-                        .id("notice-close")
-                        .px(px(6.))
-                        .cursor_pointer()
-                        .text_color(theme.muted)
-                        .child(t("Dismiss"))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.notice = None;
-                            cx.notify();
-                        })),
+                        .id("notice")
+                        .occlude()
+                        .max_w(px(640.))
+                        .mx(px(16.))
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
+                        .pl(px(14.))
+                        .pr(px(6.))
+                        .py(px(6.))
+                        .rounded(px(10.))
+                        .bg(theme.tooltip)
+                        .text_color(theme.tooltip_text)
+                        .text_sm()
+                        .shadow_lg()
+                        .child(div().flex_1().child(notice))
+                        .child(
+                            div()
+                                .id("notice-close")
+                                .size(px(24.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(theme.radius))
+                                .cursor_pointer()
+                                .tooltip(crate::chrome::tooltip("Dismiss", theme))
+                                .child(gpui::svg().path(crate::assets::icon("x")).size(px(14.)).text_color(theme.tooltip_text))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.notice = None;
+                                    cx.notify();
+                                })),
+                        ),
                 )
                 .into_any_element(),
         )
@@ -1177,6 +1035,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("delete", DeletePages, PAGES),
         KeyBinding::new("secondary-e", Extract, Some("Viewer")),
         KeyBinding::new("f3", FindNext, Some("Viewer")),
+        KeyBinding::new("escape", CloseMenu, PAGES),
         KeyBinding::new("shift-f3", FindPrevious, Some("Viewer")),
         KeyBinding::new("secondary-c", CopySelection, PAGES),
         KeyBinding::new("down", LineDown, PAGES),

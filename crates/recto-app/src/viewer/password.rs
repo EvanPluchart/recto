@@ -67,7 +67,7 @@ impl Viewer {
                     .child(div().text_color(theme.text).child(t("This document is protected by a password.")))
                     .child(locked.input.clone())
                     .when(locked.wrong, |column| {
-                        column.child(div().text_sm().text_color(theme.hit_current).child(t("Wrong password")))
+                        column.child(div().text_sm().text_color(theme.error).child(t("Wrong password")))
                     })
                     .child(
                         div()

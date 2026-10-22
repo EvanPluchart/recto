@@ -332,7 +332,7 @@ impl Viewer {
             .shadow_lg()
             .text_color(theme.text)
             .text_sm()
-            .child(div().text_base().child(t(title)))
+            .child(div().text_base().font_weight(gpui::FontWeight::SEMIBOLD).child(t(title)))
             .child(div().text_color(theme.muted).child(t(help)));
         let protecting = dialog.flag(Flag::Protect);
         for (field, input) in &dialog.fields {
@@ -349,18 +349,24 @@ impl Viewer {
             );
         }
         if matches!(dialog.kind, ToolKind::Watermark | ToolKind::PageNumbers | ToolKind::HeaderFooter) {
-            let mut grid = div().flex().flex_wrap().gap(px(4.));
-            for (n, (position, label)) in POSITIONS.into_iter().enumerate() {
-                grid = grid.child(chip(format!("position-{n}").into(), label, dialog.position == position).on_click(cx.listener(
-                    move |viewer, _, _, cx| {
-                        if let Some(dialog) = &mut viewer.tool_dialog {
-                            dialog.position = position;
-                        }
-                        cx.notify();
-                    },
-                )));
+            // Three rows, as the positions sit on the page: top, middle, bottom.
+            let mut grid = div().flex().flex_col().gap(px(4.));
+            for row in [&POSITIONS[0..3], &POSITIONS[3..4], &POSITIONS[4..7]] {
+                let mut line = div().flex().gap(px(4.));
+                for &(position, label) in row {
+                    let n = POSITIONS.iter().position(|(p, _)| *p == position).unwrap_or(0);
+                    line = line.child(chip(format!("position-{n}").into(), label, dialog.position == position).flex_1().flex().justify_center().on_click(
+                        cx.listener(move |viewer, _, _, cx| {
+                            if let Some(dialog) = &mut viewer.tool_dialog {
+                                dialog.position = position;
+                            }
+                            cx.notify();
+                        }),
+                    ));
+                }
+                grid = grid.child(line);
             }
-            card = card.child(grid);
+            card = card.child(div().text_color(theme.muted).child(t("Position"))).child(grid);
         }
         for (n, &(flag, on)) in dialog.flags.iter().enumerate() {
             if flag.needs_protect() && !protecting {
@@ -376,11 +382,14 @@ impl Viewer {
                     .when(flag.needs_protect(), |row| row.pl(px(20.)))
                     .child(
                         div()
-                            .size(px(14.))
-                            .rounded(px(3.))
+                            .size(px(16.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(px(4.))
                             .border_1()
-                            .border_color(theme.border)
-                            .when(on, |b| b.bg(theme.accent)),
+                            .border_color(if on { theme.accent } else { theme.muted })
+                            .when(on, |b| b.bg(theme.accent).child(gpui::svg().path(crate::assets::icon("check")).size(px(12.)).text_color(theme.on_accent))),
                     )
                     .child(t(flag.label()))
                     .on_click(cx.listener(move |viewer, _, _, cx| {
@@ -404,7 +413,7 @@ impl Viewer {
             );
         }
         if let Some(error) = &dialog.error {
-            card = card.child(div().text_color(theme.hit_current).child(error.clone()));
+            card = card.child(div().text_color(theme.error).child(error.clone()));
         }
         let button = |id: &'static str, label: &'static str, primary: bool| {
             div()
@@ -434,6 +443,7 @@ impl Viewer {
                 .flex()
                 .justify_center()
                 .pt(px(90.))
+                .items_start()
                 .bg(gpui::rgba(0x0000_0055))
                 .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(card)

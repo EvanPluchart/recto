@@ -137,7 +137,7 @@ impl Viewer {
                 .flex_none()
                 .w(px(WIDTH))
                 .h_full()
-                .bg(theme.toolbar)
+                .bg(theme.panel)
                 .border_r_1()
                 .border_color(theme.border)
                 .text_color(theme.text)
@@ -218,7 +218,7 @@ impl Viewer {
                         viewer.insert_files(paths.paths(), index, window, cx);
                     }));
                 if index >= count {
-                    return row.child(div().text_xs().text_color(theme.muted).child(t("Drop here to put pages at the end"))).into_any_element();
+                    return row.child(div().px(px(20.)).text_center().text_xs().text_color(theme.muted).child(t("Drop here to put pages at the end"))).into_any_element();
                 }
                 let id = open.page_states[index].id;
                 let selected = self.rail.contains(id);

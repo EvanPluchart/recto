@@ -84,7 +84,7 @@ impl Tool {
         Self::ALL.into_iter().find(|tool| tool.name() == name)
     }
 
-    fn label(self) -> &'static str {
+    pub fn label(self) -> &'static str {
         match self {
             Tool::Select => "Select",
             Tool::Text => "Text",
@@ -420,81 +420,6 @@ impl Viewer {
         }
         self.annotate(page, kind, window, cx);
         self.inspector.width = saved;
-    }
-
-    /// Third toolbar row: tools and their options.
-    pub(super) fn annotate_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        self.open()?.info.as_ref()?;
-        let theme = self.theme;
-        let mut bar = div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(2.))
-            .flex_wrap()
-            .min_h(px(34.))
-            .py(px(3.))
-            .px(px(8.))
-            .bg(theme.toolbar)
-            .border_b_1()
-            .border_color(theme.border)
-            .text_color(theme.text)
-            .text_sm();
-        for tool in Tool::ALL {
-            let active = self.tool == tool;
-            bar = bar.child(
-                div()
-                    .id(tool.name())
-                    .px(px(7.))
-                    .py(px(3.))
-                    .rounded(px(4.))
-                    .cursor_pointer()
-                    .when(active, |b| b.bg(theme.selection))
-                    .hover(move |s| s.bg(theme.hover))
-                    .child(t(tool.label()))
-                    .on_click(cx.listener(move |viewer, _, _, cx| viewer.set_tool(tool, cx))),
-            );
-        }
-        bar = bar.child(div().w(px(1.)).h(px(18.)).mx(px(6.)).bg(theme.border));
-        for (n, color) in COLORS.into_iter().enumerate() {
-            let active = self.inspector.color == color;
-            bar = bar.child(
-                div()
-                    .id(("color", n))
-                    .size(px(16.))
-                    .rounded(px(8.))
-                    .bg(rgb(color))
-                    .border_2()
-                    .border_color(if active { theme.accent } else { theme.border })
-                    .cursor_pointer()
-                    .on_click(cx.listener(move |viewer, _, _, cx| {
-                        viewer.inspector.color = color;
-                        cx.notify();
-                    })),
-            );
-        }
-        bar = bar.child(div().w(px(1.)).h(px(18.)).mx(px(6.)).bg(theme.border));
-        for (n, width) in WIDTHS.into_iter().enumerate() {
-            let active = self.inspector.width == width;
-            bar = bar.child(
-                div()
-                    .id(("width", n))
-                    .w(px(22.))
-                    .h(px(18.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(3.))
-                    .cursor_pointer()
-                    .when(active, |b| b.bg(theme.selection))
-                    .child(div().w(px(14.)).h(px(width.max(1.0))).bg(theme.text))
-                    .on_click(cx.listener(move |viewer, _, _, cx| {
-                        viewer.inspector.width = width;
-                        cx.notify();
-                    })),
-            );
-        }
-        Some(bar.into_any_element())
     }
 
     /// Drag preview and text editor over displayed page `index`, whose box is `frame`

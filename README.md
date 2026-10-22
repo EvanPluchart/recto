@@ -42,6 +42,8 @@ cargo xtask fetch-ocr-models        # OCR models (CC BY-SA 4.0) into target/ocr-
 * [Feature matrix](docs/FEATURES.md)
 * [Decision records](docs/decisions)
 
+Icons: [Lucide](https://lucide.dev) (ISC), see `crates/recto-app/assets/NOTICE.md`.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

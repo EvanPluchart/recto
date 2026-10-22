@@ -242,6 +242,7 @@ impl Viewer {
                 .flex()
                 .justify_center()
                 .pt(px(90.))
+                .items_start()
                 .bg(gpui::rgba(0x0000_0055))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(card)

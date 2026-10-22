@@ -153,7 +153,7 @@ impl Viewer {
             card = card.child(dialog.input.clone());
         }
         if let Some(error) = &dialog.error {
-            card = card.child(div().text_color(theme.hit_current).child(error.clone()));
+            card = card.child(div().text_color(theme.error).child(error.clone()));
         }
         card = card.child(
             div()
@@ -172,6 +172,7 @@ impl Viewer {
                 .flex()
                 .justify_center()
                 .pt(px(120.))
+                .items_start()
                 .bg(gpui::rgba(0x0000_0055))
                 .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(card)

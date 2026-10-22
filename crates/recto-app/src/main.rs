@@ -5,6 +5,8 @@
 // keep the console for logs (`RECTO_TIMING`, render errors).
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod assets;
+mod chrome;
 mod fontmatch;
 mod i18n;
 mod recent;
@@ -21,7 +23,7 @@ use recto_core::BuildOptions;
 use recto_core::security::{Allowed, Protection, Security};
 
 use crate::i18n::t;
-use crate::viewer::{EditSpec, Tab, Tool, Viewer, parse_edits};
+use crate::viewer::{EditSpec, MenuKind, Tab, Tool, Viewer, parse_edits};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Args {
@@ -48,6 +50,10 @@ pub struct Args {
     /// `--flatten` and `--password=PASS`.
     pub export: Option<PathBuf>,
     pub export_options: BuildOptions,
+    /// Menu open at start (`--menu=pages|document`), for screenshots.
+    pub menu: Option<MenuKind>,
+    /// Form open at start (`--dialog=export|watermark|numbers|header|properties|extract|split`).
+    pub dialog: Option<String>,
 }
 
 impl Args {
@@ -85,6 +91,10 @@ impl Args {
                     owner_password: String::new(),
                     allowed: Allowed::default(),
                 });
+            } else if let Some(name) = arg.strip_prefix("--menu=") {
+                parsed.menu = MenuKind::parse(name);
+            } else if let Some(name) = arg.strip_prefix("--dialog=") {
+                parsed.dialog = Some(name.to_owned());
             } else if arg == "--ocr" {
                 parsed.ocr = true;
             } else if arg == "--dark" {
@@ -103,7 +113,7 @@ impl Args {
 
 fn main() {
     let args = Args::parse(std::env::args().skip(1));
-    Application::new().run(move |cx: &mut App| {
+    Application::new().with_assets(assets::Assets).run(move |cx: &mut App| {
         viewer::bind_keys(cx);
         let bounds = Bounds::centered(None, size(px(900.), px(1000.)), cx);
         let options = WindowOptions {

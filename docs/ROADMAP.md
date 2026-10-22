@@ -62,6 +62,15 @@ Each milestone ends with something you can run and show. Estimates are evenings 
 
 **Status (2026-10-22):** runs are found and rewritten in `recto-core` (`textedit.rs`, `fonts.rs`, `embed.rs`), tested on `tests/fixtures/edit.pdf` (base-14 without widths, widths, embedded simple TrueType, Type0 Identity-H subset, the `'` operator, a run of two show operations) and checked with PDFium (`recto-render/tests/textedit.rs`): the run boxes hold PDFium's character boxes, the new text reads back and starts where the old one did, other lines do not move, fallback fonts embed and show. Screenshots on Windows through `--apply=edit:P:OLD=NEW`: same-font edits, a Latin fallback (Arial for a subset that lacked the letters) and a Japanese fallback from an installed font. Not hand-checked: clicking a line with the "Edit text (beta)" tool and typing in its editor; macOS and Linux font lookup. Known limits: no reflow (longer text overlaps what follows), kerning inside an edited run is lost, `Tw` does not apply to fallback fonts, text in form XObjects and annotations cannot be edited, Type 3 and vertical fonts cannot be edited, composite fonts only with Identity-H and a ToUnicode CMap.
 
+## Interface — design pass — done on `dev`, not hand-checked
+
+* One app bar (files, page navigation, zoom, history, Pages and Document menus, search, Save) and one tool bar (tools as icons in groups, colour and width), replacing four rows of text buttons.
+* Lucide icons (ISC, `crates/recto-app/assets/`), tooltips with shortcuts, notices as a floating toast, a start screen with the recent files, refined light and dark themes.
+
+**Done when:** at most two toolbar rows at 900 px wide in French; every action reachable from a bar, a menu or a shortcut; light and dark themes checked by screenshot.
+
+**Status (2026-10-22):** met on Windows by screenshots (900 px and 660 px, French, light and dark, menus and forms open through `--menu` and `--dialog`). Not hand-checked: hover states and tooltips, opening menus with the mouse, macOS and Linux.
+
 ## M6 — Distribution
 
 * Windows installer, signed macOS `.dmg`, AppImage.
