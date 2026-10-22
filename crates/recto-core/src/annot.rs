@@ -54,6 +54,97 @@ pub struct Raster {
     pub alpha: Option<Vec<u8>>,
 }
 
+
+/// One drawing command of an `Outline`, in its unit box.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PathCommand {
+    Move(Point),
+    Line(Point),
+    Cubic(Point, Point, Point),
+    Close,
+}
+
+/// A vector shape in a unit box (x and y from 0 to 1, y up), with the box's width over its
+/// height, so it can be placed without distortion.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Outline {
+    pub aspect: f32,
+    pub commands: Vec<PathCommand>,
+}
+
+impl Outline {
+    /// `text` set on one line in the font `font` (TrueType or OpenType bytes), as outlines.
+    /// `None` if the font cannot be read or has none of the characters.
+    pub fn from_text(font: &[u8], text: &str) -> Option<Outline> {
+        struct Builder {
+            commands: Vec<PathCommand>,
+            pen: f32,
+            last: Point,
+        }
+        impl Builder {
+            fn at(&self, x: f32, y: f32) -> Point {
+                Point { x: x + self.pen, y }
+            }
+        }
+        impl ttf_parser::OutlineBuilder for Builder {
+            fn move_to(&mut self, x: f32, y: f32) {
+                self.last = self.at(x, y);
+                self.commands.push(PathCommand::Move(self.last));
+            }
+            fn line_to(&mut self, x: f32, y: f32) {
+                self.last = self.at(x, y);
+                self.commands.push(PathCommand::Line(self.last));
+            }
+            fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+                // A quadratic curve as the equivalent cubic.
+                let (p0, q, p) = (self.last, self.at(x1, y1), self.at(x, y));
+                let c1 = Point { x: p0.x + 2.0 / 3.0 * (q.x - p0.x), y: p0.y + 2.0 / 3.0 * (q.y - p0.y) };
+                let c2 = Point { x: p.x + 2.0 / 3.0 * (q.x - p.x), y: p.y + 2.0 / 3.0 * (q.y - p.y) };
+                self.last = p;
+                self.commands.push(PathCommand::Cubic(c1, c2, p));
+            }
+            fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+                self.last = self.at(x, y);
+                self.commands.push(PathCommand::Cubic(self.at(x1, y1), self.at(x2, y2), self.last));
+            }
+            fn close(&mut self) {
+                self.commands.push(PathCommand::Close);
+            }
+        }
+        let face = ttf_parser::Face::parse(font, 0).ok()?;
+        let mut builder = Builder { commands: Vec::new(), pen: 0.0, last: Point { x: 0.0, y: 0.0 } };
+        for c in text.chars() {
+            let Some(glyph) = face.glyph_index(c) else { continue };
+            face.outline_glyph(glyph, &mut builder);
+            builder.pen += f32::from(face.glyph_hor_advance(glyph).unwrap_or(0));
+        }
+        let points: Vec<Point> = builder
+            .commands
+            .iter()
+            .flat_map(|command| match command {
+                PathCommand::Move(p) | PathCommand::Line(p) => vec![*p],
+                PathCommand::Cubic(a, b, c) => vec![*a, *b, *c],
+                PathCommand::Close => Vec::new(),
+            })
+            .collect();
+        let frame = bounds(points, 0.0);
+        if frame.width <= 0.0 || frame.height <= 0.0 {
+            return None;
+        }
+        let unit = |p: &Point| Point { x: (p.x - frame.origin.x) / frame.width, y: (p.y - frame.origin.y) / frame.height };
+        let commands = builder
+            .commands
+            .iter()
+            .map(|command| match command {
+                PathCommand::Move(p) => PathCommand::Move(unit(p)),
+                PathCommand::Line(p) => PathCommand::Line(unit(p)),
+                PathCommand::Cubic(a, b, c) => PathCommand::Cubic(unit(a), unit(b), unit(c)),
+                PathCommand::Close => PathCommand::Close,
+            })
+            .collect();
+        Some(Outline { aspect: frame.width / frame.height, commands })
+    }
+}
 #[derive(Clone, Debug, PartialEq)]
 pub enum Kind {
     /// Text in a box. `upright` is the page's display rotation when it was placed, so the text
@@ -64,6 +155,9 @@ pub enum Kind {
     Rectangle { rect: Rect },
     Ellipse { rect: Rect },
     Line { from: Point, to: Point, arrow: bool },
+    /// A filled vector shape stretched over `rect` (typed signatures in a handwriting font),
+    /// upright like text.
+    Shape { rect: Rect, outline: Arc<Outline>, upright: u16 },
     /// Freehand strokes; drawn signatures too.
     Ink { strokes: Vec<Vec<Point>> },
     /// Text markup over the boxes of the marked text.
@@ -153,7 +247,7 @@ impl Annotation {
     fn subtype(&self) -> &'static [u8] {
         match self.kind {
             Kind::Text { .. } => b"FreeText",
-            Kind::Image { .. } => b"Stamp",
+            Kind::Image { .. } | Kind::Shape { .. } => b"Stamp",
             Kind::Rectangle { .. } => b"Square",
             Kind::Ellipse { .. } => b"Circle",
             Kind::Line { .. } => b"Line",
@@ -168,7 +262,7 @@ impl Annotation {
     pub fn rect(&self) -> Rect {
         let margin = self.width.max(1.0);
         match &self.kind {
-            Kind::Text { rect, .. } | Kind::Image { rect, .. } | Kind::Rectangle { rect } | Kind::Ellipse { rect } => *rect,
+            Kind::Text { rect, .. } | Kind::Image { rect, .. } | Kind::Shape { rect, .. } | Kind::Rectangle { rect } | Kind::Ellipse { rect } => *rect,
             Kind::Line { from, to, .. } => bounds([*from, *to], margin * 4.0 + 6.0),
             Kind::Ink { strokes } => bounds(strokes.iter().flatten().copied(), margin),
             Kind::Highlight { quads } | Kind::Underline { quads } | Kind::StrikeOut { quads } => {
@@ -181,7 +275,7 @@ impl Annotation {
     /// resizing act on.
     pub fn frame(&self) -> Rect {
         match &self.kind {
-            Kind::Text { rect, .. } | Kind::Image { rect, .. } | Kind::Rectangle { rect } | Kind::Ellipse { rect } => *rect,
+            Kind::Text { rect, .. } | Kind::Image { rect, .. } | Kind::Shape { rect, .. } | Kind::Rectangle { rect } | Kind::Ellipse { rect } => *rect,
             Kind::Line { from, to, .. } => bounds([*from, *to], 0.0),
             Kind::Ink { strokes } => bounds(strokes.iter().flatten().copied(), 0.0),
             Kind::Highlight { quads } | Kind::Underline { quads } | Kind::StrikeOut { quads } => {
@@ -208,6 +302,7 @@ impl Annotation {
                 Kind::Text { rect: rect(*r), text: text.clone(), size: (size * across).max(4.0), font: *font, upright: *upright }
             }
             Kind::Image { rect: r, image, upright } => Kind::Image { rect: rect(*r), image: image.clone(), upright: *upright },
+            Kind::Shape { rect: r, outline, upright } => Kind::Shape { rect: rect(*r), outline: outline.clone(), upright: *upright },
             Kind::Rectangle { rect: r } => Kind::Rectangle { rect: rect(*r) },
             Kind::Ellipse { rect: r } => Kind::Ellipse { rect: rect(*r) },
             Kind::Line { from, to, arrow } => Kind::Line { from: point(*from), to: point(*to), arrow: *arrow },
@@ -268,6 +363,33 @@ impl Annotation {
                 images.set("Im0", Object::Reference(add_image(document, image)));
                 resources.set("XObject", Object::Dictionary(images));
                 content.save_state().transform([width, 0.0, 0.0, height, 0.0, 0.0]).x_object(Name(b"Im0")).restore_state();
+            }
+            Kind::Shape { outline, upright, .. } => {
+                let (width, height) = upright_size(&rect, *upright);
+                bbox = Rect { origin: Point { x: 0.0, y: 0.0 }, width, height };
+                matrix = upright_matrix(*upright);
+                content.set_fill_rgb(r, g, b);
+                let at = |p: &Point| (p.x * width, p.y * height);
+                for command in &outline.commands {
+                    match command {
+                        PathCommand::Move(p) => {
+                            let (x, y) = at(p);
+                            content.move_to(x, y);
+                        }
+                        PathCommand::Line(p) => {
+                            let (x, y) = at(p);
+                            content.line_to(x, y);
+                        }
+                        PathCommand::Cubic(a, b, c) => {
+                            let ((x1, y1), (x2, y2), (x3, y3)) = (at(a), at(b), at(c));
+                            content.cubic_to(x1, y1, x2, y2, x3, y3);
+                        }
+                        PathCommand::Close => {
+                            content.close_path();
+                        }
+                    }
+                }
+                content.fill_nonzero();
             }
             Kind::Rectangle { rect } => {
                 let half = self.width / 2.0;
@@ -457,6 +579,20 @@ pub fn text_width(text: &str, size: f32, font: Font) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn outlines_text_in_a_unit_box() {
+        let font = crate::testfont::font("RectoTest");
+        let outline = Outline::from_text(&font, "AB").unwrap();
+        // Two boxes 500 wide (heights 500 to 700), 600 apart: 1100 wide.
+        assert!((1100.0 / 700.0..=1100.0 / 500.0).contains(&outline.aspect), "{}", outline.aspect);
+        let inside = outline.commands.iter().all(|command| match command {
+            PathCommand::Move(p) | PathCommand::Line(p) => (0.0..=1.0).contains(&p.x) && (0.0..=1.0).contains(&p.y),
+            _ => true,
+        });
+        assert!(inside && outline.commands.iter().filter(|c| matches!(c, PathCommand::Close)).count() == 2);
+        assert!(Outline::from_text(&font, "日本").is_none());
+    }
 
     #[test]
     fn measures_helvetica() {

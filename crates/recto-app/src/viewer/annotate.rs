@@ -8,7 +8,7 @@ use gpui::{
     AnyElement, Context, Entity, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, PathBuilder,
     PathPromptOptions, Pixels, Styled, Window, canvas, div, point, prelude::*, px,
 };
-use recto_core::annot::{Annotation, Color, Font, Kind, Raster, text_width};
+use recto_core::annot::{Annotation, Color, Font, Kind, Outline, Raster, text_width};
 use recto_core::geom::{PageRect, Point};
 use recto_core::op::Op;
 
@@ -420,12 +420,18 @@ impl Viewer {
     pub(super) fn place_signature(&mut self, signature: &Signature, page: usize, at: Point, window: &mut Window, cx: &mut Context<Self>) {
         let Some(geometry) = self.geometry(page) else { return };
         let kind = match signature {
-            Signature::Typed(name) => {
-                let size = 28.0;
-                let area = PageRect { x: at.x, y: at.y, width: text_width(name, size, Font::TimesItalic) + 8.0, height: size * 1.4 };
-                Kind::Text { rect: geometry.rect_to_user(area), text: name.clone(), size, font: Font::TimesItalic, upright: geometry.rotate }
+            Signature::Typed { name, style, .. } => {
+                // A vector shape from the handwriting font: the same everywhere, no font embedded.
+                let font = crate::signatures::STYLES[(*style).min(crate::signatures::STYLES.len() - 1)].1;
+                let Some(outline) = Outline::from_text(font, name) else {
+                    self.notice = Some(t("This style cannot write these characters.").into());
+                    return cx.notify();
+                };
+                let height = 36.0;
+                let area = PageRect { x: at.x, y: at.y, width: height * outline.aspect, height };
+                Kind::Shape { rect: geometry.rect_to_user(area), outline: Arc::new(outline), upright: geometry.rotate }
             }
-            Signature::Drawn(strokes) => {
+            Signature::Drawn { strokes, .. } => {
                 // 160 x 64 points on screen.
                 let (width, height) = (64.0 * DRAWN_ASPECT, 64.0);
                 let strokes = strokes
@@ -437,12 +443,13 @@ impl Viewer {
                 Kind::Ink { strokes }
             }
         };
-        let saved = self.inspector.width;
-        if matches!(signature, Signature::Drawn(_)) {
+        let (width, color) = (self.inspector.width, self.inspector.color);
+        if matches!(signature, Signature::Drawn { .. }) {
             self.inspector.width = 1.8;
         }
+        self.inspector.color = signature.color();
         self.annotate(page, kind, window, cx);
-        self.inspector.width = saved;
+        (self.inspector.width, self.inspector.color) = (width, color);
     }
 
     /// Drag preview and text editor over displayed page `index`, whose box is `frame`

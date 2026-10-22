@@ -393,6 +393,7 @@ impl Viewer {
             Some("properties") => viewer.open_tool(ToolKind::Properties, window, cx),
             Some("extract") => viewer.open_dialog(DialogKind::Extract, window, cx),
             Some("split") => viewer.open_dialog(DialogKind::Split(SplitMode::Ranges), window, cx),
+            Some("signature") => viewer.open_signature_dialog(window, cx),
             _ => {}
         }
         if let Some(query) = args.find {

@@ -61,6 +61,8 @@ fn annotations_render_where_they_were_placed() {
     let image = Arc::new(Raster { width: 2, height: 2, rgb: [0, 160, 255].repeat(4), alpha: None });
     add(&mut document, Kind::Image { rect: rect(400.0, 250.0, 60.0, 60.0), image, upright: 0 }, Color::BLACK);
     add(&mut document, Kind::Ellipse { rect: rect(100.0, 450.0, 200.0, 100.0) }, Color::RED);
+    let outline = recto_core::annot::Outline::from_text(&recto_core::testfont::font("RectoTest"), "AB").unwrap();
+    add(&mut document, Kind::Shape { rect: rect(350.0, 450.0, 120.0, 60.0), outline: Arc::new(outline), upright: 0 }, Color::BLACK);
 
     let bitmap = render(&thread, document.build().unwrap(), 2);
     let reddish = |[r, g, b]: [u8; 3]| r > 180 && g < 100 && b < 100;
@@ -75,6 +77,7 @@ fn annotations_render_where_they_were_placed() {
     assert!(g > 100 && r < 100 && b < 120, "ink: {:?}", [r, g, b]);
     assert_eq!(rgb(&bitmap, 430.0, 562.0), [0, 160, 255], "image");
     assert!(reddish(rgb(&bitmap, 102.0, 342.0)), "ellipse left edge: {:?}", rgb(&bitmap, 102.0, 342.0));
+    assert!(dark_pixels(&bitmap, 350, 332, 470, 392) > 2000, "filled shape drawn");
 
     // Upright text on a /Rotate 90 page: wider than tall on screen, as typed.
     let mut rotated = Document::open(fixture.join("layout.pdf")).unwrap();

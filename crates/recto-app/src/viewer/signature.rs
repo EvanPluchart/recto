@@ -22,6 +22,8 @@ pub struct SignatureDialog {
     /// Strokes drawn on the pad, in pad pixels.
     strokes: Vec<Vec<(f32, f32)>>,
     drawing: bool,
+    /// Index in `signatures::INKS`.
+    ink: usize,
     /// Where the pad was painted, to turn window positions into pad positions.
     pad: Rc<Cell<Bounds<Pixels>>>,
 }
@@ -32,9 +34,11 @@ impl Viewer {
         let typed = cx.new(|cx| TextInput::new(t("Your name"), |_| true, theme, cx));
         cx.subscribe_in(&typed, window, |viewer, _, event, window, cx| match event {
             TextInputEvent::Commit { text, .. } if !text.trim().is_empty() => {
-                viewer.choose_signature(Signature::Typed(text.trim().to_owned()), window, cx);
+                let ink = viewer.signature_dialog.as_ref().map_or(0, |dialog| dialog.ink);
+                viewer.choose_signature(Signature::Typed { name: text.trim().to_owned(), style: 0, ink }, window, cx);
             }
             TextInputEvent::Cancel => viewer.close_signature_dialog(window, cx),
+            TextInputEvent::Changed(_) => cx.notify(),
             _ => {}
         })
         .detach();
@@ -43,6 +47,7 @@ impl Viewer {
             typed,
             strokes: Vec::new(),
             drawing: false,
+            ink: 0,
             pad: Rc::new(Cell::new(Bounds::default())),
         });
         cx.notify();
@@ -65,12 +70,12 @@ impl Viewer {
 
     /// The drawn strokes in the unit box `DRAWN_ASPECT` wide, trimmed to their extent.
     fn drawn_signature(dialog: &SignatureDialog) -> Option<Signature> {
-        normalize(&dialog.strokes)
+        normalize(&dialog.strokes).map(|strokes| Signature::Drawn { strokes, ink: dialog.ink })
     }
 }
 
 /// Strokes in pad pixels, scaled into the unit box with their shape kept.
-fn normalize(strokes: &[Vec<(f32, f32)>]) -> Option<Signature> {
+fn normalize(strokes: &[Vec<(f32, f32)>]) -> Option<Vec<Vec<(f32, f32)>>> {
     let points: Vec<(f32, f32)> = strokes.iter().flatten().copied().collect();
     if points.len() < 2 {
         return None;
@@ -83,7 +88,7 @@ fn normalize(strokes: &[Vec<(f32, f32)>]) -> Option<Signature> {
         .iter()
         .map(|stroke| stroke.iter().map(|(x, y)| ((x - x0) / scale / DRAWN_ASPECT, (y - y0) / scale)).collect())
         .collect();
-    Some(Signature::Drawn(strokes))
+    Some(strokes)
 }
 
 impl Viewer {
@@ -103,8 +108,8 @@ impl Viewer {
         };
         let saved = dialog.saved.iter().enumerate().map(|(n, signature)| {
             let label: SharedString = match signature {
-                Signature::Typed(name) => name.clone().into(),
-                Signature::Drawn(strokes) => format!("{} ({} {})", t("Drawn signature"), strokes.len(), t("strokes")).into(),
+                Signature::Typed { name, .. } => name.clone().into(),
+                Signature::Drawn { strokes, .. } => format!("{} ({} {})", t("Drawn signature"), strokes.len(), t("strokes")).into(),
             };
             let chosen = signature.clone();
             div()
@@ -117,9 +122,62 @@ impl Viewer {
                 .child(label)
                 .on_click(cx.listener(move |viewer, _, window, cx| viewer.choose_signature(chosen.clone(), window, cx)))
         });
+        let ink = dialog.ink;
+        let ink_color = |n: usize| {
+            let color = signatures::INKS[n];
+            gpui::Rgba { r: color.r, g: color.g, b: color.b, a: 1.0 }
+        };
+        let name = dialog.typed.read(cx).text().trim().to_owned();
+        let mut inks = div().flex().items_center().gap(px(6.)).child(div().text_color(theme.muted).mr(px(4.)).child(t("Ink")));
+        for n in 0..signatures::INKS.len() {
+            inks = inks.child(
+                div()
+                    .id(("signature-ink", n))
+                    .size(px(20.))
+                    .rounded(px(10.))
+                    .cursor_pointer()
+                    .bg(ink_color(n))
+                    .border_2()
+                    .border_color(if n == ink { theme.highlight } else { theme.toolbar })
+                    .on_click(cx.listener(move |viewer, _, _, cx| {
+                        if let Some(dialog) = &mut viewer.signature_dialog {
+                            dialog.ink = n;
+                        }
+                        cx.notify();
+                    })),
+            );
+        }
+        let mut styles = div().flex().flex_wrap().gap(px(8.));
+        for (n, (family, _)) in signatures::STYLES.iter().enumerate() {
+            let shown: SharedString = if name.is_empty() { t("Your name").into() } else { name.clone().into() };
+            let chosen = name.clone();
+            styles = styles.child(
+                div()
+                    .id(("signature-style", n))
+                    .w(px(207.))
+                    .h(px(64.))
+                    .px(px(10.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .overflow_hidden()
+                    .rounded(px(theme.radius))
+                    .border_1()
+                    .border_color(theme.border)
+                    .bg(gpui::white())
+                    .cursor_pointer()
+                    .hover(move |s| s.border_color(theme.highlight))
+                    .child(div().font_family(*family).text_size(px(28.)).text_color(ink_color(ink)).whitespace_nowrap().child(shown))
+                    .on_click(cx.listener(move |viewer, _, window, cx| {
+                        if !chosen.is_empty() {
+                            viewer.choose_signature(Signature::Typed { name: chosen.clone(), style: n, ink }, window, cx);
+                        }
+                    })),
+            );
+        }
         let strokes = dialog.strokes.clone();
         let pad_bounds = dialog.pad.clone();
-        let text = theme.text;
+        let text = ink_color(ink);
         let pad = div()
             .id("signature-pad")
             .w_full()
@@ -182,7 +240,7 @@ impl Viewer {
 
         let card = div()
             .id("signature-dialog")
-            .w(px(420.))
+            .w(px(470.))
             .p(px(16.))
             .flex()
             .flex_col()
@@ -198,27 +256,24 @@ impl Viewer {
             .when(!dialog.saved.is_empty(), |card| {
                 card.child(div().text_color(theme.muted).child(t("Saved signatures"))).children(saved)
             })
-            .child(div().text_color(theme.muted).child(t("Type your name")))
-            .child(
-                div()
-                    .flex()
-                    .gap(px(8.))
-                    .child(div().flex_1().child(dialog.typed.clone()))
-                    .child(button("use-typed".into(), "Use", false).on_click(cx.listener(|viewer, _, window, cx| {
-                        let Some(dialog) = &viewer.signature_dialog else { return };
-                        let name = dialog.typed.read(cx).text().trim().to_owned();
-                        if !name.is_empty() {
-                            viewer.choose_signature(Signature::Typed(name), window, cx);
-                        }
-                    }))),
-            )
+            .child(div().text_color(theme.muted).child(t("Type your name, then pick a style")))
+            .child(dialog.typed.clone())
+            .child(inks)
+            .child(styles)
             .child(div().text_color(theme.muted).child(t("Or draw it")))
             .child(pad)
             .child(
                 div()
                     .flex()
-                    .justify_end()
+                    .items_center()
                     .gap(px(8.))
+                    .child(button("signature-image".into(), "From an image…", false).flex_none().on_click(cx.listener(|viewer, _, window, cx| {
+                        viewer.close_signature_dialog(window, cx);
+                        viewer.tool = Tool::Image;
+                        viewer.notice = Some(t("Click on a page to place the image of your signature.").into());
+                        cx.notify();
+                    })))
+                    .child(div().flex_1())
                     .child(button("signature-clear".into(), "Clear", false).on_click(cx.listener(|viewer, _, _, cx| {
                         if let Some(dialog) = &mut viewer.signature_dialog {
                             dialog.strokes.clear();
@@ -258,7 +313,7 @@ mod tests {
     #[test]
     fn drawings_fit_the_unit_box_keeping_their_shape() {
         let drawn = [vec![(10.0, 20.0), (60.0, 30.0)], vec![(35.0, 40.0)]];
-        let Some(Signature::Drawn(strokes)) = normalize(&drawn) else { panic!("no drawing") };
+        let Some(strokes) = normalize(&drawn) else { panic!("no drawing") };
         // 50 x 20 pixels: width limits (50 / 2.5 = 20 = height), so both span the box.
         assert_eq!(strokes[0], vec![(0.0, 0.0), (1.0, 0.5)]);
         assert_eq!(strokes[1], vec![(0.5, 1.0)]);

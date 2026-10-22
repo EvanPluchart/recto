@@ -40,6 +40,8 @@ pub enum EditSpec {
     Stamp(Stamp),
     /// New text for the run showing `old` on page `page`.
     EditText { page: usize, old: String, new: String },
+    /// A typed signature in style `style` and ink `ink`, its top-left at `at` (displayed points).
+    Sign { page: usize, at: Point, style: usize, ink: usize, name: String },
     /// The document title.
     Title(String),
 }
@@ -69,6 +71,17 @@ pub fn parse_edits(spec: &str) -> Result<Vec<EditSpec>, String> {
                     ..Stamp::page_numbers()
                 })),
                 "title" => Ok(EditSpec::Title(value.to_owned())),
+                "sign" => {
+                    let fields: Vec<&str> = value.splitn(6, ':').collect();
+                    let [page, x, y, style, ink, name] = fields[..] else { return Err(format!("expected sign:P:X:Y:STYLE:INK:NAME, got {part}")) };
+                    Ok(EditSpec::Sign {
+                        page: number(page)?,
+                        at: Point { x: coordinate(x)?, y: coordinate(y)? },
+                        style: number(style)?.min(crate::signatures::STYLES.len() - 1),
+                        ink: number(ink)?.min(crate::signatures::INKS.len() - 1),
+                        name: name.to_owned(),
+                    })
+                }
                 "edit" => {
                     let (page, change) = value.split_once(':').ok_or_else(|| format!("expected edit:P:OLD=NEW, got {part}"))?;
                     let (old, new) = change.split_once('=').ok_or_else(|| format!("expected edit:P:OLD=NEW, got {part}"))?;
@@ -289,6 +302,16 @@ impl Viewer {
                     };
                     let edit = TextEdit { first: run.first, last: run.last, original: run.original, text: new.clone(), font };
                     document.apply(Op::EditText { page: id, edit });
+                }
+                EditSpec::Sign { page: n, at, style, ink, ref name } => {
+                    let pages = document.pages();
+                    let (Some(state), Ok(geometry)) = (n.checked_sub(1).and_then(|i| pages.get(i)), document.geometry_of(&pages)) else { continue };
+                    let Some(outline) = recto_core::annot::Outline::from_text(crate::signatures::STYLES[style].1, name) else { continue };
+                    let page = geometry[n - 1];
+                    let area = PageRect { x: at.x, y: at.y, width: 36.0 * outline.aspect, height: 36.0 };
+                    let kind = Kind::Shape { rect: page.rect_to_user(area), outline: Arc::new(outline), upright: page.rotate };
+                    let annotation = Annotation { kind, color: crate::signatures::INKS[ink], width: 1.0 };
+                    document.apply(Op::AddAnnotation { page: state.id, annotation });
                 }
                 EditSpec::Stamp(ref stamp) => document.apply(Op::AddStamp(stamp.clone())),
                 EditSpec::Title(ref title) => {
