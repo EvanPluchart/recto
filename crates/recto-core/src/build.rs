@@ -12,10 +12,12 @@ use std::collections::{BTreeSet, HashMap};
 use lopdf::{Dictionary, Object, ObjectId};
 
 use crate::PageId;
-use crate::{annot, form, redact};
+use crate::{annot, form, redact, stamp};
 use crate::geom::{PageGeometry, Point, Rect};
 use crate::document::{Document, Source};
 use crate::op::{Op, PageState};
+use crate::meta::Metadata;
+use crate::stamp::Stamp;
 
 #[derive(Debug, thiserror::Error)]
 pub enum BuildError {
@@ -126,12 +128,20 @@ impl Document {
         let mut kids = Vec::with_capacity(pages.len());
         for page in pages {
             let id = *objects.get(&page.id).ok_or(BuildError::MissingPage(page.id))?;
+            let crop = self.crop_of(page.id).map(|area| {
+                let media = attribute(&base, id, b"MediaBox").and_then(|value| rectangle(&base, value)).unwrap_or(DEFAULT_MEDIA_BOX);
+                intersect(area, media).unwrap_or(media)
+            });
             let dictionary = base.get_dictionary_mut(id)?;
             dictionary.set("Parent", Object::Reference(tree));
             let own = dictionary.get(b"Rotate").and_then(Object::as_i64).unwrap_or(0);
             let rotation = (own + i64::from(page.rotation)).rem_euclid(360);
             if rotation != 0 || dictionary.has(b"Rotate") {
                 dictionary.set("Rotate", Object::Integer(rotation));
+            }
+            if let Some(crop) = crop {
+                let corners = [crop.origin.x, crop.origin.y, crop.origin.x + crop.width, crop.origin.y + crop.height];
+                dictionary.set("CropBox", Object::Array(corners.into_iter().map(Object::Real).collect()));
             }
             kids.push(Object::Reference(id));
         }
@@ -172,6 +182,26 @@ impl Document {
             originals.extend(redact::redact_page(&mut base, *page, areas)?);
         }
         redact::forget(&mut base, &originals)?;
+        let stamps: Vec<(&Stamp, Vec<usize>)> = self
+            .ops()
+            .iter()
+            .filter_map(|op| if let Op::AddStamp(stamp) = op { Some(stamp) } else { None })
+            .map(|stamp| {
+                let on = pages.iter().enumerate().filter(|(_, page)| stamp.pages.as_ref().is_none_or(|only| only.contains(&page.id)));
+                (stamp, on.map(|(index, _)| index).collect())
+            })
+            .collect();
+        if !stamps.is_empty() {
+            let placed: Vec<(ObjectId, PageGeometry)> = pages
+                .iter()
+                .filter_map(|page| objects.get(&page.id))
+                .map(|&id| (id, page_geometry(&base, id, 0)))
+                .collect();
+            stamp::apply(&mut base, &placed, &stamps)?;
+        }
+        if let Some(metadata) = self.ops().iter().rev().find_map(|op| if let Op::SetMetadata(metadata) = op { Some(metadata) } else { None }) {
+            metadata.write(&mut base, std::time::SystemTime::now())?;
+        }
         if options.flatten_forms {
             form::flatten(&mut base)?;
         }
@@ -254,11 +284,37 @@ fn intersect(a: Rect, b: Rect) -> Option<Rect> {
 
 /// US Letter, the default media box when a page has none.
 const DEFAULT_MEDIA_BOX: Rect = Rect { origin: Point { x: 0.0, y: 0.0 }, width: 612.0, height: 792.0 };
+/// How page `id` of `document` is shown, with `added` degrees of rotation on top of its own.
+fn page_geometry(document: &lopdf::Document, id: ObjectId, added: u16) -> PageGeometry {
+    let media = attribute(document, id, b"MediaBox").and_then(|value| rectangle(document, value)).unwrap_or(DEFAULT_MEDIA_BOX);
+    let crop = attribute(document, id, b"CropBox").and_then(|value| rectangle(document, value));
+    let area = crop.and_then(|crop| intersect(crop, media)).unwrap_or(media);
+    let own = attribute(document, id, b"Rotate").and_then(|value| value.as_i64().ok()).unwrap_or(0);
+    // Rotations that are not quarter turns are invalid; round them like readers do.
+    let quarter = ((own + i64::from(added)).rem_euclid(360) + 45) / 90 % 4;
+    PageGeometry { area, rotate: (quarter * 90) as u16 }
+}
 
 impl Document {
     /// How each current page is shown, read from the sources with `lopdf`.
     pub fn geometry(&self) -> Result<Vec<PageGeometry>, BuildError> {
         self.geometry_of(&self.pages())
+    }
+
+    /// The crop area set on `page` by the latest `CropPages`, if any.
+    pub fn crop_of(&self, page: PageId) -> Option<Rect> {
+        self.ops().iter().rev().find_map(|op| match op {
+            Op::CropPages { pages, area } if pages.contains(&page) => Some(*area),
+            _ => None,
+        })
+    }
+
+    /// The document properties: the latest `SetMetadata`, or the opened file's.
+    pub fn metadata(&self) -> Result<Metadata, BuildError> {
+        if let Some(metadata) = self.ops().iter().rev().find_map(|op| if let Op::SetMetadata(metadata) = op { Some(metadata) } else { None }) {
+            return Ok(metadata.clone());
+        }
+        Ok(Metadata::read(&load(&self.sources()[0])?))
     }
 
     /// How each of `pages` is shown.
@@ -267,9 +323,10 @@ impl Document {
         let mut geometry = Vec::with_capacity(pages.len());
         for page in pages {
             let source = &self.sources()[page.id.source as usize];
-            let (area, own) = match source {
+            let mut shown = match source {
                 Source::Blank { size } => {
-                    (Rect { origin: Point { x: 0.0, y: 0.0 }, width: size.width, height: size.height }, 0)
+                    let area = Rect { origin: Point { x: 0.0, y: 0.0 }, width: size.width, height: size.height };
+                    PageGeometry { area, rotate: page.rotation }
                 }
                 Source::File { .. } => {
                     let (document, ids) = match loaded.entry(page.id.source) {
@@ -280,24 +337,27 @@ impl Document {
                             entry.insert((document, ids))
                         }
                     };
-                    let (document, ids) = (&*document, &*ids);
                     let id = *ids.get(page.id.index as usize).ok_or(BuildError::MissingPage(page.id))?;
-                    let media = attribute(document, id, b"MediaBox")
-                        .and_then(|value| rectangle(document, value))
-                        .unwrap_or(DEFAULT_MEDIA_BOX);
-                    let crop = attribute(document, id, b"CropBox").and_then(|value| rectangle(document, value));
-                    let area = crop.and_then(|crop| intersect(crop, media)).unwrap_or(media);
-                    let rotate = attribute(document, id, b"Rotate").and_then(|value| value.as_i64().ok()).unwrap_or(0);
-                    (area, rotate)
+                    page_geometry(document, id, page.rotation)
                 }
             };
-            // Rotations that are not quarter turns are invalid; round them like readers do.
-            let quarter = ((own + i64::from(page.rotation)).rem_euclid(360) + 45) / 90 % 4;
-            geometry.push(PageGeometry { area, rotate: (quarter * 90) as u16 });
+            if let Some(crop) = self.crop_of(page.id) {
+                let media = match source {
+                    Source::Blank { size } => Rect { origin: Point { x: 0.0, y: 0.0 }, width: size.width, height: size.height },
+                    Source::File { .. } => {
+                        let (document, ids) = &loaded[&page.id.source];
+                        let id = ids[page.id.index as usize];
+                        attribute(document, id, b"MediaBox").and_then(|value| rectangle(document, value)).unwrap_or(DEFAULT_MEDIA_BOX)
+                    }
+                };
+                shown.area = intersect(crop, media).unwrap_or(media);
+            }
+            geometry.push(shown);
         }
         Ok(geometry)
     }
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -497,6 +557,37 @@ mod tests {
         assert_eq!(written[5].get(b"InkList").unwrap().as_array().unwrap().len(), 1);
     }
 
+
+    #[test]
+    fn crops_stamps_and_metadata_round_trip() {
+        use crate::meta::Metadata;
+        use crate::stamp::Stamp;
+        let mut document = open("layout.pdf");
+        let crop = Rect { origin: Point { x: 50.0, y: 60.0 }, width: 400.0, height: 500.0 };
+        document.apply(Op::CropPages { pages: vec![id(0)], area: crop });
+        document.apply(Op::AddStamp(Stamp::page_numbers()));
+        document.apply(Op::AddStamp(Stamp { pages: Some(vec![id(1)]), ..Stamp::watermark("DRAFT") }));
+        let metadata = Metadata { title: "Été".into(), author: "Recto".into(), ..Metadata::default() };
+        document.apply(Op::SetMetadata(metadata.clone()));
+        document.apply(Op::MovePages { pages: vec![id(3)], to: 0 });
+        assert_eq!(document.geometry().unwrap()[1].area, crop);
+        assert_eq!(document.metadata().unwrap(), metadata);
+
+        let bytes = document.build().unwrap();
+        let reopened = lopdf::Document::load_mem(&bytes).unwrap();
+        let text = |number: u32| reopened.extract_text(&[number]).unwrap();
+        for (number, label) in [(1, "1 / 4"), (2, "2 / 4"), (3, "3 / 4"), (4, "4 / 4")] {
+            assert!(text(number).contains(label), "page {number}: {:?}", text(number));
+        }
+        assert!(text(3).contains("DRAFT") && !text(2).contains("DRAFT"));
+        // The original text is still there, under the stamps.
+        assert!(text(1).contains("Page 4"));
+        let pages: Vec<ObjectId> = reopened.get_pages().into_values().collect();
+        let crop_box: Vec<f32> =
+            reopened.get_dictionary(pages[1]).unwrap().get(b"CropBox").unwrap().as_array().unwrap().iter().map(|v| v.as_float().unwrap()).collect();
+        assert_eq!(crop_box, vec![50.0, 60.0, 450.0, 560.0]);
+        assert_eq!(Metadata::read(&reopened), metadata);
+    }
     #[test]
     fn subsets_and_errors() {
         let document = open("sample.pdf");

@@ -117,7 +117,7 @@ pub fn text_string(text: &str) -> Object {
 }
 
 /// Bytes for a base-14 font with WinAnsiEncoding; characters it lacks become `?`.
-fn win_ansi(text: &str) -> Vec<u8> {
+pub(crate) fn win_ansi(text: &str) -> Vec<u8> {
     text.chars().map(|c| if (c as u32) < 256 { c as u32 as u8 } else { b'?' }).collect()
 }
 

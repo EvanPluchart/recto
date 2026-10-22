@@ -129,7 +129,8 @@ pub(super) struct Known {
     pages: Vec<PageState>,
     geometry: Vec<PageGeometry>,
     fields: Vec<FormField>,
-    /// Per page, the ids of the ops drawn on it (annotations, filled fields): a page whose
+    /// Per page, the ids of the ops drawn on it (annotations, filled fields, redactions, crops,
+    /// stamps, and for page numbers the position): a page whose
     /// state and marks are unchanged keeps its bitmap across a rebuild.
     marks: Vec<Vec<u64>>,
 }
@@ -146,7 +147,28 @@ impl Known {
         let mut by_page: HashMap<PageId, Vec<u64>> = HashMap::new();
         for (op, &id) in document.ops().iter().zip(document.op_ids()) {
             match op {
-                recto_core::op::Op::AddAnnotation { page, .. } => by_page.entry(*page).or_default().push(id),
+                recto_core::op::Op::AddAnnotation { page, .. } | recto_core::op::Op::Redact { page, .. } => {
+                    by_page.entry(*page).or_default().push(id)
+                }
+                recto_core::op::Op::CropPages { pages: cropped, .. } => {
+                    for page in cropped {
+                        by_page.entry(*page).or_default().push(id);
+                    }
+                }
+                recto_core::op::Op::AddStamp(stamp) => {
+                    let count = pages.len() as u64;
+                    for (index, page) in pages.iter().enumerate() {
+                        if stamp.pages.as_ref().is_some_and(|only| !only.contains(&page.id)) {
+                            continue;
+                        }
+                        let marks = by_page.entry(page.id).or_default();
+                        marks.push(id);
+                        // Numbers change with the page's position: keep it in the marks.
+                        if stamp.is_numbered() {
+                            marks.push(1 << 63 | (index as u64) << 32 | count);
+                        }
+                    }
+                }
                 recto_core::op::Op::FillField { name, .. } => {
                     for field in fields.iter().filter(|field| &field.name == name) {
                         for widget in &field.widgets {

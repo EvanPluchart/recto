@@ -3,6 +3,8 @@
 use crate::PageId;
 use crate::annot::Annotation;
 use crate::geom::Rect;
+use crate::meta::Metadata;
+use crate::stamp::Stamp;
 
 /// Clockwise rotation in quarter turns.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,6 +40,12 @@ pub enum Op {
     FillField { name: String, value: String },
     /// Removes what lies under `area` on `page` (see `redact.rs`) and paints it black.
     Redact { page: PageId, area: Rect },
+    /// Shows only `area` (user space) of each page: sets the crop box.
+    CropPages { pages: Vec<PageId>, area: Rect },
+    /// Text drawn on pages: watermark, page numbers, header or footer.
+    AddStamp(Stamp),
+    /// Title, author, subject, keywords.
+    SetMetadata(Metadata),
 }
 
 /// A page of the current document: which original page it is, and the rotation added to it.
@@ -75,7 +83,12 @@ pub fn replay(initial: &[PageId], ops: &[Op]) -> Vec<PageState> {
                 let at = (*at).min(pages.len());
                 pages.splice(at..at, fresh);
             }
-            Op::AddAnnotation { .. } | Op::FillField { .. } | Op::Redact { .. } => {}
+            Op::AddAnnotation { .. }
+            | Op::FillField { .. }
+            | Op::Redact { .. }
+            | Op::CropPages { .. }
+            | Op::AddStamp(_)
+            | Op::SetMetadata(_) => {}
         }
     }
     pages
