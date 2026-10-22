@@ -36,10 +36,12 @@ pub enum Tool {
     Redact,
     /// Shows only a dragged area of the page (or of the selected pages).
     Crop,
+    /// Changes the text of a line (beta).
+    EditText,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 14] = [
+    pub const ALL: [Tool; 15] = [
         Tool::Select,
         Tool::Text,
         Tool::Highlight,
@@ -54,6 +56,7 @@ impl Tool {
         Tool::Signature,
         Tool::Redact,
         Tool::Crop,
+        Tool::EditText,
     ];
 
     /// Name used by `--tool=NAME`.
@@ -73,6 +76,7 @@ impl Tool {
             Tool::Signature => "signature",
             Tool::Redact => "redact",
             Tool::Crop => "crop",
+            Tool::EditText => "edit",
         }
     }
 
@@ -96,6 +100,7 @@ impl Tool {
             Tool::Signature => "Sign",
             Tool::Redact => "Redact",
             Tool::Crop => "Crop",
+            Tool::EditText => "Edit text (beta)",
         }
     }
 
@@ -165,6 +170,7 @@ impl Viewer {
         self.tool = tool;
         self.sketch = None;
         self.text_draft = None;
+        self.edit_draft = None;
         if tool != Tool::Signature {
             self.signature = None;
         }
@@ -202,6 +208,7 @@ impl Viewer {
         let Some((page, at)) = self.page_point(event.position) else { return };
         match self.tool {
             Tool::Text => self.start_text(page, at, window, cx),
+            Tool::EditText => self.start_text_edit(page, at, window, cx),
             Tool::Image => self.prompt_image(page, at, window, cx),
             Tool::Signature => match self.signature.clone() {
                 Some(signature) => self.place_signature(&signature, page, at, window, cx),

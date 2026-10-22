@@ -28,7 +28,7 @@ Legend: milestone where it lands, or `later` / `no`.
 | Security | Redact | M4 | lopdf (content removal) |
 | Tools | Document properties (metadata) | M4 | lopdf |
 | Text | OCR | M4 | ocrs, in recto-ocr (decision 0004) |
-| Edit | Edit existing text | M5 | lopdf + font subsetting |
+| Edit | Edit existing text (beta) | M5 | lopdf, ttf-parser, subsetter; fontdb in the app (decision 0005) |
 | Convert | PDF to images, images to PDF | later | PDFium / pdf-writer |
 | Convert | PDF to Word / Excel | no | out of scope |
 | Compare | Diff two PDFs | later | PDFium text |

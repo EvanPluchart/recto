@@ -378,6 +378,16 @@ impl Document {
         self.geometry_of(&self.pages())
     }
 
+    /// Whether `text` can replace `run` of `page` in the run's own font (else the edit needs a
+    /// font added with `add_font`).
+    pub fn fits_font(&self, page: PageId, run: &TextRun, text: &str) -> Result<bool, BuildError> {
+        let source = &self.sources()[page.source as usize];
+        let Source::File { .. } = source else { return Ok(false) };
+        let document = load(source)?;
+        let id = *document.get_pages().values().nth(page.index as usize).ok_or(BuildError::MissingPage(page))?;
+        Ok(textedit::fits(&document, id, run.first, text))
+    }
+
     /// The text runs of `page`, with the edits made so far.
     pub fn text_runs(&self, page: PageId) -> Result<Vec<TextRun>, BuildError> {
         let source = &self.sources()[page.source as usize];

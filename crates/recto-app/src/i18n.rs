@@ -173,6 +173,12 @@ const FR: &[(&str, &str)] = &[
     ("pages:", "pages :"),
     ("Search and copy now work on them.", "La recherche et la copie fonctionnent désormais dessus."),
     ("Text recognition failed", "La reconnaissance de texte a échoué"),
+    ("Edit text (beta)", "Modifier le texte (bêta)"),
+    ("This text cannot be edited: its font does not say which characters it shows.", "Ce texte ne peut pas être modifié : sa police n’indique pas quels caractères elle affiche."),
+    ("Cannot read the text of this page", "Impossible de lire le texte de cette page"),
+    ("Editing text…", "Modification du texte…"),
+    ("The original font lacks some of these characters: a similar installed font is used.", "La police d’origine n’a pas tous ces caractères : une police installée proche est utilisée."),
+    ("No installed font has these characters.", "Aucune police installée n’a ces caractères."),
 ];
 
 fn lang() -> Lang {

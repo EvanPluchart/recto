@@ -11,6 +11,7 @@ use recto_core::geom::{PageRect, Point, Size};
 use recto_core::meta::Metadata;
 use recto_core::op::{Op, PageState, Rotation};
 use recto_core::stamp::{Position, Stamp};
+use recto_core::textedit::TextEdit;
 use recto_core::{BuildError, PageId};
 use recto_render::DocInfo;
 
@@ -37,6 +38,8 @@ pub enum EditSpec {
     Fill { name: String, value: String },
     /// Text stamped on every page (watermark, numbers, header, footer).
     Stamp(Stamp),
+    /// New text for the run showing `old` on page `page`.
+    EditText { page: usize, old: String, new: String },
     /// The document title.
     Title(String),
 }
@@ -44,7 +47,8 @@ pub enum EditSpec {
 /// `rotate:2,delete:3,move:4>1,blank:0,undo`, and annotations in displayed page points:
 /// `rectangle:P:X:Y:W:H`, `ellipse:…`, `highlight:P:X:Y:W:H`, `arrow:P:X1:Y1:X2:Y2`,
 /// `line:…`, `freehand:P:X:Y:X:Y…`, `text:P:X:Y:TEXT`, `redact:P:X:Y:W:H`, `crop:P:X:Y:W:H`;
-/// `fill:NAME=VALUE`, `watermark:TEXT`, `numbers`, `header:TEXT`, `footer:TEXT`, `title:TEXT`.
+/// `fill:NAME=VALUE`, `watermark:TEXT`, `numbers`, `header:TEXT`, `footer:TEXT`, `title:TEXT`,
+/// `edit:P:OLD=NEW` (the run of page P showing OLD gets NEW).
 pub fn parse_edits(spec: &str) -> Result<Vec<EditSpec>, String> {
     let number = |text: &str| text.trim().parse::<usize>().map_err(|_| format!("not a page number: {text}"));
     let coordinate = |text: &str| text.trim().parse::<f32>().map_err(|_| format!("not a coordinate: {text}"));
@@ -65,6 +69,11 @@ pub fn parse_edits(spec: &str) -> Result<Vec<EditSpec>, String> {
                     ..Stamp::page_numbers()
                 })),
                 "title" => Ok(EditSpec::Title(value.to_owned())),
+                "edit" => {
+                    let (page, change) = value.split_once(':').ok_or_else(|| format!("expected edit:P:OLD=NEW, got {part}"))?;
+                    let (old, new) = change.split_once('=').ok_or_else(|| format!("expected edit:P:OLD=NEW, got {part}"))?;
+                    Ok(EditSpec::EditText { page: number(page)?, old: old.to_owned(), new: new.to_owned() })
+                }
                 "move" => {
                     let (page, before) = value.split_once('>').ok_or_else(|| format!("expected move:N>M, got {part}"))?;
                     Ok(EditSpec::Move { page: number(page)?, before: number(before)? })
@@ -260,6 +269,23 @@ impl Viewer {
                 }
                 EditSpec::Undo => {
                     document.undo();
+                }
+                EditSpec::EditText { page: n, ref old, ref new } => {
+                    let Some(id) = page(n) else { continue };
+                    let Some(run) = document.text_runs(id).ok().and_then(|runs| runs.into_iter().find(|run| run.text == *old)) else {
+                        eprintln!("recto: --apply: no text {old:?} on page {n}");
+                        continue;
+                    };
+                    let font = if document.fits_font(id, &run, new).unwrap_or(false) {
+                        None
+                    } else if let Some(font) = crate::fontmatch::find(&run.style, new) {
+                        Some(document.add_font(font))
+                    } else {
+                        eprintln!("recto: --apply: no installed font shows {new:?}");
+                        continue;
+                    };
+                    let edit = TextEdit { first: run.first, last: run.last, original: run.original, text: new.clone(), font };
+                    document.apply(Op::EditText { page: id, edit });
                 }
                 EditSpec::Stamp(ref stamp) => document.apply(Op::AddStamp(stamp.clone())),
                 EditSpec::Title(ref title) => {
@@ -466,6 +492,7 @@ mod tests {
         assert!(matches!(&specs[3], EditSpec::Stamp(stamp) if stamp.is_numbered()));
         assert!(matches!(&specs[4], EditSpec::Stamp(stamp) if stamp.text == "p. {page}" && stamp.position == Position::BottomCenter));
         assert_eq!(specs[5], EditSpec::Title("Report".into()));
+        assert_eq!(parse_edits("edit:2:Hello world=Bonjour").unwrap()[0], EditSpec::EditText { page: 2, old: "Hello world".into(), new: "Bonjour".into() });
     }
 
     #[test]

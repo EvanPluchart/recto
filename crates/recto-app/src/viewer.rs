@@ -29,6 +29,7 @@ mod search;
 mod selection;
 mod sidebar;
 mod signature;
+mod textedit;
 mod tools;
 
 pub use self::sidebar::Tab;
@@ -39,6 +40,7 @@ use self::dialog::{Dialog, DialogKind};
 use self::forms::FieldEditor;
 use self::signature::SignatureDialog;
 use self::ocr::OcrJob;
+use self::textedit::EditDraft;
 use self::tools::{ToolDialog, ToolKind};
 use self::output::SplitMode;
 use self::password::Locked;
@@ -153,7 +155,8 @@ impl Known {
             match op {
                 recto_core::op::Op::AddAnnotation { page, .. }
                 | recto_core::op::Op::Redact { page, .. }
-                | recto_core::op::Op::AddTextLayer { page, .. } => {
+                | recto_core::op::Op::AddTextLayer { page, .. }
+                | recto_core::op::Op::EditText { page, .. } => {
                     by_page.entry(*page).or_default().push(id)
                 }
                 recto_core::op::Op::CropPages { pages: cropped, .. } => {
@@ -288,6 +291,8 @@ pub struct Viewer {
     timing: Option<(&'static str, std::time::Instant)>,
     /// Watermark, page numbers, properties, export.
     tool_dialog: Option<ToolDialog>,
+    /// Text being edited with the Edit text tool.
+    edit_draft: Option<EditDraft>,
     /// Text recognition in progress, and the engine once loaded.
     ocr: Option<OcrJob>,
     ocr_engine: Option<Arc<recto_ocr::Engine>>,
@@ -338,6 +343,7 @@ impl Viewer {
             build_version: 0,
             timing: None,
             tool_dialog: None,
+            edit_draft: None,
             ocr: None,
             ocr_engine: None,
         };
@@ -902,6 +908,7 @@ impl Viewer {
             content = content.children(selected);
             content = content.children(self.form_overlay(index, (page.x, page.y), zoom, cx));
             content = content.children(self.tool_overlay(index, (page.x, page.y, page.width, page.height), zoom));
+            content = content.children(self.text_edit_overlay(index, (page.x, page.y, page.width, page.height), zoom));
         }
         div()
             .id("pages")

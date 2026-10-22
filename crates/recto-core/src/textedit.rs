@@ -351,6 +351,17 @@ pub fn runs(document: &lopdf::Document, page: ObjectId) -> Vec<TextRun> {
     group(&operations, &shown, &fonts)
 }
 
+/// Whether `text` can replace the run starting at operation `first` in the run's own font.
+pub fn fits(document: &lopdf::Document, page: ObjectId, first: usize, text: &str) -> bool {
+    let (operations, fonts) = read_page(document, page);
+    let shown = locate(&operations, &fonts);
+    let Some(head) = shown.iter().find(|show| show.index == first) else { return false };
+    let Some(font) = fonts.get(&head.font) else { return false };
+    let used: HashSet<Code> = shown.iter().filter(|show| show.font == head.font).flat_map(|show| show.codes.iter().cloned()).collect();
+    // Spaces the font cannot show are written as gaps.
+    text.split(' ').all(|word| word.is_empty() || font.charset.encode(word, &used).is_some())
+}
+
 /// A fallback font embedded for this build: its resource and the codes of its characters.
 pub(crate) struct Embedded {
     pub font: ObjectId,

@@ -5,6 +5,7 @@
 // keep the console for logs (`RECTO_TIMING`, render errors).
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod fontmatch;
 mod i18n;
 mod recent;
 mod signatures;
