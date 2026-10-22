@@ -49,3 +49,10 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.rten-vecmath]
 opt-level = 3
+
+# Smaller, faster release builds. Panics still unwind: a panic on a background thread (a crafted
+# PDF tripping the parser) must not take the window down.
+[profile.release]
+lto = "fat"
+codegen-units = 1
+strip = true
