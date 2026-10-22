@@ -23,3 +23,7 @@ image = { workspace = true, features = ["png", "jpeg"] }
 
 [build-dependencies]
 embed-resource = "3.0.12"
+
+# Printing on Windows: the print dialog and GDI. The same version as GPUI's, so it is built once.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Storage_Xps", "Win32_UI_Controls_Dialogs"] }

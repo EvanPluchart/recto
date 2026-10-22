@@ -39,7 +39,7 @@ fn part_paths(folder: &Path, stem: &str, parts: usize) -> Vec<PathBuf> {
 }
 
 impl Viewer {
-    fn stem(&self) -> String {
+    pub(super) fn stem(&self) -> String {
         self.open()
             .and_then(|open| open.document.path())
             .and_then(|path| path.file_stem())

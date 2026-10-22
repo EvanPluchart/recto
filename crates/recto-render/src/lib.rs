@@ -44,6 +44,8 @@ pub enum Purpose {
     Thumbnail,
     /// A page image for text recognition.
     Ocr,
+    /// A page image for the printer.
+    Print,
 }
 
 /// Premultiplied BGRA (the layout PDFium and GPUI both use), row-major, `width * 4` bytes per row.

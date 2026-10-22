@@ -49,6 +49,7 @@ icons![
     "paintbrush",
     "panel-left",
     "pencil",
+    "printer",
     "redo-2",
     "replace",
     "rotate-ccw",

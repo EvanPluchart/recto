@@ -460,6 +460,7 @@ impl Viewer {
                 }
                 self.notice = Some(failure("Cannot apply the change", error));
                 self.ocr_resume(window, cx);
+        self.print_resume(window, cx);
                 self.update_title(window);
                 cx.notify();
             }
@@ -533,6 +534,7 @@ impl Viewer {
         }
         self.update_title(window);
         self.ocr_resume(window, cx);
+        self.print_resume(window, cx);
         cx.notify();
     }
 

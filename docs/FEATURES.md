@@ -8,18 +8,19 @@ Legend: milestone where it lands, or `later` / `no`.
 |---|---|---|---|
 | View | Render, zoom, scroll, thumbnails | M0–M1 | PDFium |
 | View | Outline, search, select and copy text | M1 | PDFium |
+| View | Print (Windows: print dialog and GDI; macOS and Linux: `lp`) | after M5 | PDFium + GDI / CUPS |
 | Organize | Merge | M2 | lopdf |
 | Organize | Split (range, every N, by bookmark, by size) | M2 | lopdf |
 | Organize | Reorder, rotate, delete, extract, insert blank | M2 | lopdf |
 | Organize | Alternate and mix (interleave two scans) | later | lopdf |
 | Organize | Crop pages | M4 | lopdf |
 | Organize | Resize pages | later | lopdf |
-| Annotate | Text, images, shapes, freehand | M3 | lopdf + pdf-writer |
+| Annotate | Text (three base fonts, sizes), images, shapes, freehand; copy, paste, duplicate, restyle, nudge | M3, after M5 | lopdf + pdf-writer |
 | Annotate | Highlight, underline, strikeout | M3 | lopdf |
 | Annotate | Sign (drawn, typed, image) | M3 | lopdf + pdf-writer |
 | Forms | Fill AcroForm fields | M3 | lopdf (decision 0003) |
 | Forms | Flatten | M3 | lopdf (decision 0003) |
-| Forms | Create form fields | later | lopdf |
+| Forms | Create form fields | after M5 | lopdf |
 | Tools | Compress | M4 | lopdf + image |
 | Tools | Grayscale | M4 | lopdf |
 | Tools | Watermark, page numbers, headers and footers | M4 | pdf-writer |

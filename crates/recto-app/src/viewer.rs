@@ -25,6 +25,7 @@ mod forms;
 mod links;
 mod ocr;
 mod pick;
+mod print;
 mod replace;
 mod output;
 mod password;
@@ -66,7 +67,7 @@ actions!(
         ZoomIn, ZoomOut, ActualSize, FitWidth, FitPage, GoToPage, LineDown, LineUp, ScreenDown, ScreenUp, FirstPage,
         LastPage, ToggleThumbnails, ToggleOutline, Find, FindNext, FindPrevious, CopySelection, OpenFile, Undo, Redo,
         Save, SaveAs, RotateLeft, RotateRight, DeletePages, InsertBlank, InsertFile, Extract, Split, CloseMenu, Paste,
-        Duplicate, Left, Right
+        Duplicate, Left, Right, Print
     ]
 );
 
@@ -334,6 +335,8 @@ pub struct Viewer {
     /// Files asked to open in the background so far; only the latest is shown.
     loading: u64,
     ocr_engine: Option<Arc<recto_ocr::Engine>>,
+    /// The print job in progress.
+    printing: Option<print::PrintJob>,
 }
 
 impl Viewer {
@@ -391,6 +394,7 @@ impl Viewer {
             copied: None,
             loading: 0,
             ocr_engine: None,
+            printing: None,
         };
         // Focus first: a password prompt takes it over.
         window.focus(&viewer.focus);
@@ -552,6 +556,10 @@ impl Viewer {
                         cx.notify();
                     }
                 };
+            }
+            #[cfg(windows)]
+            Response::Rendered { request, result } if request.purpose == Purpose::Print => {
+                return self.receive_print_image(request.page, result, window, cx);
             }
             Response::Rendered { request, result } if request.purpose == Purpose::Thumbnail => match result {
                 Ok(bitmap) => sidebar::store_thumbnail(open, request.index, bitmap, cx),
@@ -961,6 +969,7 @@ impl Render for Viewer {
                 }
             }))
             .on_action(cx.listener(|this, _: &Paste, window, cx| this.paste_annotation(window, cx)))
+            .on_action(cx.listener(|this, _: &Print, window, cx| this.print(window, cx)))
             .on_action(cx.listener(|this, _: &Duplicate, window, cx| this.duplicate_picked(window, cx)))
             .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, window, cx| this.on_tool_key(event, window, cx)))
             .on_action(cx.listener(|this, _: &ZoomIn, window, cx| this.step_zoom(true, window, cx)))
@@ -1142,6 +1151,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("right", Right, PAGES),
         KeyBinding::new("secondary-v", Paste, PAGES),
         KeyBinding::new("secondary-d", Duplicate, PAGES),
+        KeyBinding::new("secondary-p", Print, Some("Viewer")),
         KeyBinding::new("pagedown", ScreenDown, PAGES),
         KeyBinding::new("space", ScreenDown, PAGES),
         KeyBinding::new("pageup", ScreenUp, PAGES),

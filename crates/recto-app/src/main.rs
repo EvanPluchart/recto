@@ -14,6 +14,8 @@ mod signatures;
 mod text_input;
 mod theme;
 mod viewer;
+#[cfg(windows)]
+mod printer;
 
 use std::path::PathBuf;
 

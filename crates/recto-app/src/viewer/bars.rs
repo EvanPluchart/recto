@@ -222,10 +222,13 @@ impl Viewer {
             .on_click(cx.listener(|this, _, window, cx| this.toggle_annotations(window, cx)));
             let find = icon_button("find", "search", "Find (Ctrl+F)", self.search.open, true, theme)
                 .on_click(cx.listener(|this, _, window, cx| if this.search.open { this.close_search(window, cx) } else { this.open_search(window, cx) }));
+            let print = icon_button("print", "printer", "Print (Ctrl+P)", self.printing.is_some(), true, theme)
+                .on_click(cx.listener(|this, _, window, cx| this.print(window, cx)));
             if editing {
                 bar = bar
                     .child(menu_button("pages-menu", "layers", "Pages", MenuKind::Pages))
                     .child(menu_button("document-menu", "file-text", "Document", MenuKind::Document))
+                    .child(print)
                     .child(annotations)
                     .child(find)
                     .child(separator(theme))
@@ -236,7 +239,7 @@ impl Viewer {
                     )
                     .child(primary_button("save", "Save", modified, theme).on_click(cx.listener(|this, _, window, cx| this.save(window, cx))));
             } else {
-                bar = bar.child(annotations).child(find).child(div().w(px(4.)));
+                bar = bar.child(print).child(annotations).child(find).child(div().w(px(4.)));
                 if modified {
                     bar = bar.child(text_button("save", Some("save"), "Save", theme).on_click(cx.listener(|this, _, window, cx| this.save(window, cx))));
                 }
