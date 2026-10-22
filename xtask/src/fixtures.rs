@@ -9,11 +9,12 @@ use pdf_writer::{Content, Filter, Finish, Name, Pdf, Rect, Ref, Str, TextStr};
 /// Committed fixtures, by file name.
 type Fixture = (&'static str, fn() -> Vec<u8>);
 /// Byte-for-byte reproducible fixtures; the up-to-date test compares them with the generators.
-const FIXTURES: [Fixture; 4] = [
+const FIXTURES: [Fixture; 5] = [
     ("sample.pdf", sample_pdf),
     ("layout.pdf", layout_pdf),
     ("inherited.pdf", inherited_pdf),
     ("forms.pdf", forms_pdf),
+    ("redact.pdf", redact_pdf),
 ];
 /// Encrypted: the `/U` entry ends with arbitrary bytes, which `lopdf` draws at random.
 const PROTECTED: &str = "protected.pdf";
@@ -218,6 +219,130 @@ pub fn forms_pdf() -> Vec<u8> {
     catalog.set("Type", name("Catalog"));
     catalog.set("Pages", Object::Reference(pages_id));
     catalog.set("AcroForm", Object::Dictionary(acro_form));
+    let catalog_id = document.add_object(catalog);
+    document.trailer.set("Root", Object::Reference(catalog_id));
+    let mut bytes = Vec::new();
+    document.save_to(&mut bytes).expect("writing to a Vec");
+    bytes
+}
+
+
+/// Two A4 pages holding marked tokens for redaction tests. Page 1:
+/// * `Name: Alice ALPHATOKEN Smith` in Helvetica 14 at (56, 760), a font without `/Widths`;
+/// * `[(Code ) -200 (BRAVOTOKEN) 50 ( end)] TJ` in Courier 12 with `/Widths`, at (56, 720);
+/// * `Hidden GOLF word` in Helvetica 12 at (56, 680), inside marked content whose `/ActualText`
+///   is `GOLFTOKEN`;
+/// * a 20×10 RGB image drawn at (300, 500) size 200×100, whose left half holds the bytes
+///   `DELTATOKEN` and right half is gray 0x80;
+/// * a 4×2 gray inline image at (56, 500) size 50×20, data `ECHOTOKN`;
+/// * the form XObject `Fm1` (`Form CHARLIETOKEN here`, Helvetica 12) at (56, 400);
+/// * a FreeText annotation `FOXTROTTOKEN` at [300 300 400 330], a Square `KEEPNOTE` at
+///   [56 100 100 140].
+///
+/// Page 2 draws the same `Fm1` at (56, 700) and `HOTELTOKEN` at (56, 650).
+pub fn redact_pdf() -> Vec<u8> {
+    use lopdf::{Dictionary, Object, Stream};
+
+    let name = |text: &str| Object::Name(text.as_bytes().to_vec());
+    let rect = |x0: f32, y0: f32, x1: f32, y1: f32| Object::Array(vec![x0.into(), y0.into(), x1.into(), y1.into()]);
+
+    let mut document = lopdf::Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let mut helvetica = Dictionary::new();
+    helvetica.set("Type", name("Font"));
+    helvetica.set("Subtype", name("Type1"));
+    helvetica.set("BaseFont", name("Helvetica"));
+    helvetica.set("Encoding", name("WinAnsiEncoding"));
+    let helvetica_id = document.add_object(helvetica);
+    let mut courier = Dictionary::new();
+    courier.set("Type", name("Font"));
+    courier.set("Subtype", name("Type1"));
+    courier.set("BaseFont", name("Courier"));
+    courier.set("Encoding", name("WinAnsiEncoding"));
+    courier.set("FirstChar", 32);
+    courier.set("LastChar", 126);
+    courier.set("Widths", Object::Array(vec![Object::Integer(600); 95]));
+    let courier_id = document.add_object(courier);
+    let mut fonts = Dictionary::new();
+    fonts.set("F1", Object::Reference(helvetica_id));
+    fonts.set("F2", Object::Reference(courier_id));
+
+    let mut form_dict = Dictionary::new();
+    form_dict.set("Type", name("XObject"));
+    form_dict.set("Subtype", name("Form"));
+    form_dict.set("BBox", rect(0.0, -5.0, 300.0, 20.0));
+    let mut form_resources = Dictionary::new();
+    form_resources.set("Font", Object::Dictionary(fonts.clone()));
+    form_dict.set("Resources", Object::Dictionary(form_resources));
+    let form_id = document.add_object(Stream::new(form_dict, b"BT /F1 12 Tf 0 0 Td (Form CHARLIETOKEN here) Tj ET".to_vec()));
+
+    let mut pixels = Vec::with_capacity(600);
+    for _ in 0..10 {
+        pixels.extend_from_slice(b"DELTATOKENDELTATOKENDELTATOKEN");
+        pixels.extend_from_slice(&[0x80; 30]);
+    }
+    let mut image_dict = Dictionary::new();
+    image_dict.set("Type", name("XObject"));
+    image_dict.set("Subtype", name("Image"));
+    image_dict.set("Width", 20);
+    image_dict.set("Height", 10);
+    image_dict.set("ColorSpace", name("DeviceRGB"));
+    image_dict.set("BitsPerComponent", 8);
+    let mut image = Stream::new(image_dict, pixels);
+    image.compress().expect("compressing a Vec");
+    let image_id = document.add_object(image);
+
+    let mut xobjects = Dictionary::new();
+    xobjects.set("Fm1", Object::Reference(form_id));
+    xobjects.set("Im1", Object::Reference(image_id));
+    let mut resources = Dictionary::new();
+    resources.set("Font", Object::Dictionary(fonts));
+    resources.set("XObject", Object::Dictionary(xobjects));
+    let resources_id = document.add_object(resources);
+
+    let first: &[u8] = b"BT /F1 14 Tf 56 760 Td (Name: Alice ALPHATOKEN Smith) Tj ET\n\
+BT /F2 12 Tf 56 720 Td [(Code ) -200 (BRAVOTOKEN) 50 ( end)] TJ ET\n\
+/Span <</ActualText (GOLFTOKEN)>> BDC BT /F1 12 Tf 56 680 Td (Hidden GOLF word) Tj ET EMC\n\
+q 200 0 0 100 300 500 cm /Im1 Do Q\n\
+q 50 0 0 20 56 500 cm BI /W 4 /H 2 /CS /G /BPC 8 ID ECHOTOKN\nEI Q\n\
+q 1 0 0 1 56 400 cm /Fm1 Do Q";
+    let second: &[u8] = b"q 1 0 0 1 56 700 cm /Fm1 Do Q\nBT /F1 12 Tf 56 650 Td (HOTELTOKEN) Tj ET";
+
+    let mut page_ids = Vec::new();
+    for (index, content) in [first, second].into_iter().enumerate() {
+        let page_id = document.new_object_id();
+        let content_id = document.add_object(Stream::new(Dictionary::new(), content.to_vec()));
+        let mut page = Dictionary::new();
+        page.set("Type", name("Page"));
+        page.set("Parent", Object::Reference(pages_id));
+        page.set("MediaBox", rect(0.0, 0.0, 595.0, 842.0));
+        page.set("Resources", Object::Reference(resources_id));
+        page.set("Contents", Object::Reference(content_id));
+        if index == 0 {
+            let mut annots = Vec::new();
+            for (subtype, area, contents) in [("FreeText", rect(300.0, 300.0, 400.0, 330.0), "FOXTROTTOKEN"), ("Square", rect(56.0, 100.0, 100.0, 140.0), "KEEPNOTE")] {
+                let mut annotation = Dictionary::new();
+                annotation.set("Type", name("Annot"));
+                annotation.set("Subtype", name(subtype));
+                annotation.set("Rect", area);
+                annotation.set("Contents", Object::string_literal(contents));
+                annotation.set("DA", Object::string_literal("/Helv 12 Tf 0 g"));
+                annotation.set("P", Object::Reference(page_id));
+                annots.push(Object::Reference(document.add_object(annotation)));
+            }
+            page.set("Annots", Object::Array(annots));
+        }
+        document.objects.insert(page_id, Object::Dictionary(page));
+        page_ids.push(Object::Reference(page_id));
+    }
+    let mut pages = Dictionary::new();
+    pages.set("Type", name("Pages"));
+    pages.set("Count", Object::Integer(page_ids.len() as i64));
+    pages.set("Kids", Object::Array(page_ids));
+    document.objects.insert(pages_id, Object::Dictionary(pages));
+    let mut catalog = Dictionary::new();
+    catalog.set("Type", name("Catalog"));
+    catalog.set("Pages", Object::Reference(pages_id));
     let catalog_id = document.add_object(catalog);
     document.trailer.set("Root", Object::Reference(catalog_id));
     let mut bytes = Vec::new();

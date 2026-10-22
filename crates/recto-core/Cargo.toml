@@ -8,4 +8,5 @@ authors.workspace = true
 [dependencies]
 lopdf = { workspace = true }
 pdf-writer.workspace = true
+image = { workspace = true, features = ["jpeg"] }
 thiserror.workspace = true

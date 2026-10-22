@@ -36,7 +36,7 @@ pub enum Op {
     AddAnnotation { page: PageId, annotation: Annotation },
     /// Sets the value of the form field named `name` (see `form::FormField::value`).
     FillField { name: String, value: String },
-    /// Redaction removes content under `area`; it never only paints over it. (M4)
+    /// Removes what lies under `area` on `page` (see `redact.rs`) and paints it black.
     Redact { page: PageId, area: Rect },
 }
 

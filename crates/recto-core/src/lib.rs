@@ -3,11 +3,13 @@
 
 pub mod annot;
 pub mod build;
+pub mod content;
 pub mod document;
 pub mod form;
 pub mod geom;
 pub mod layout;
 pub mod op;
+pub mod redact;
 pub mod save;
 pub mod split;
 pub mod text;

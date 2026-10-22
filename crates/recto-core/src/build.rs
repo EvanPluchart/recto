@@ -12,7 +12,7 @@ use std::collections::{BTreeSet, HashMap};
 use lopdf::{Dictionary, Object, ObjectId};
 
 use crate::PageId;
-use crate::{annot, form};
+use crate::{annot, form, redact};
 use crate::geom::{PageGeometry, Point, Rect};
 use crate::document::{Document, Source};
 use crate::op::{Op, PageState};
@@ -21,8 +21,6 @@ use crate::op::{Op, PageState};
 pub enum BuildError {
     #[error("cannot read a source document: {0}")]
     Source(#[from] lopdf::Error),
-    #[error("redaction is not supported yet")]
-    Unsupported,
     #[error("page {0:?} is missing from its source")]
     MissingPage(PageId),
     #[error("the document has no pages left")]
@@ -87,9 +85,6 @@ impl Document {
     }
 
     fn build_pages_with(&self, pages: &[PageState], options: BuildOptions) -> Result<Vec<u8>, BuildError> {
-        if self.ops().iter().any(|op| matches!(op, Op::Redact { .. })) {
-            return Err(BuildError::Unsupported);
-        }
         if pages.is_empty() {
             return Err(BuildError::NoPages);
         }
@@ -147,17 +142,36 @@ impl Document {
         base.objects.insert(tree, Object::Dictionary(node));
         base.catalog_mut()?.set("Pages", Object::Reference(tree));
 
-        // Annotations added to pages that are part of this output.
+        // Annotations and redactions on pages that are part of this output, in log order: a
+        // redaction deletes the annotations made before it.
+        let mut redactions: Vec<(ObjectId, Vec<Rect>)> = Vec::new();
         for (serial, op) in self.ops().iter().enumerate() {
-            let Op::AddAnnotation { page, annotation } = op else { continue };
+            let (Op::AddAnnotation { page, .. } | Op::Redact { page, .. }) = op else { continue };
             if !pages.iter().any(|state| state.id == *page) {
                 continue;
             }
             let Some(&id) = objects.get(page) else { continue };
-            let written = annotation.write(&mut base, id, serial);
-            annot::attach(&mut base, id, written)?;
+            match op {
+                Op::AddAnnotation { annotation, .. } => {
+                    let written = annotation.write(&mut base, id, serial);
+                    annot::attach(&mut base, id, written)?;
+                }
+                Op::Redact { area, .. } => {
+                    redact::remove_annotations(&mut base, id, &[*area])?;
+                    match redactions.iter_mut().find(|(page, _)| *page == id) {
+                        Some((_, areas)) => areas.push(*area),
+                        None => redactions.push((id, vec![*area])),
+                    }
+                }
+                _ => {}
+            }
         }
         form::fill(&mut base, &self.filled_values());
+        let mut originals = Vec::new();
+        for (page, areas) in &redactions {
+            originals.extend(redact::redact_page(&mut base, *page, areas)?);
+        }
+        redact::forget(&mut base, &originals)?;
         if options.flatten_forms {
             form::flatten(&mut base)?;
         }
