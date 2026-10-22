@@ -167,8 +167,19 @@ impl Known {
                 | recto_core::op::Op::Erase { page, .. }
                 | recto_core::op::Op::DeleteImage { page, .. }
                 | recto_core::op::Op::AddTextLayer { page, .. }
-                | recto_core::op::Op::EditText { page, .. } => {
+                | recto_core::op::Op::EditText { page, .. }
+                | recto_core::op::Op::AddField { page, .. } => {
                     by_page.entry(*page).or_default().push(id)
+                }
+                // The page of the annotation they change.
+                recto_core::op::Op::UpdateAnnotation { target, .. } | recto_core::op::Op::DeleteAnnotation { target } => {
+                    let page = document.ops().iter().zip(document.op_ids()).find_map(|(op, &added)| match op {
+                        recto_core::op::Op::AddAnnotation { page, .. } if added == *target => Some(*page),
+                        _ => None,
+                    });
+                    if let Some(page) = page {
+                        by_page.entry(page).or_default().push(id);
+                    }
                 }
                 recto_core::op::Op::CropPages { pages: cropped, .. } => {
                     for page in cropped {
@@ -1169,6 +1180,27 @@ mod tests {
         let two = marks(&document);
         assert_ne!(two[1], one[1]);
         assert_ne!(two[1], before[1]);
+    }
+
+    #[test]
+    /// Moving or deleting an annotation must redraw its page, and only that page.
+    fn changing_an_annotation_changes_its_page_marks() {
+        use recto_core::annot::{Annotation, Color, Kind};
+        use recto_core::geom::Rect;
+        let mut document = Document::open(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/sample.pdf")).unwrap();
+        let page = PageId { source: 0, index: 1 };
+        let rect = Rect { origin: recto_core::geom::Point { x: 10.0, y: 10.0 }, width: 50.0, height: 20.0 };
+        let annotation = Annotation { kind: Kind::Rectangle { rect }, color: Color::RED, width: 2.0 };
+        document.apply(recto_core::op::Op::AddAnnotation { page, annotation: annotation.clone() });
+        let target = document.annotations(page)[0].0;
+        let before = marks(&document);
+        let moved = annotation.mapped(Rect { origin: recto_core::geom::Point { x: 100.0, y: 100.0 }, ..rect });
+        document.apply(recto_core::op::Op::UpdateAnnotation { target, annotation: moved });
+        let after = marks(&document);
+        assert_ne!(after[1], before[1]);
+        assert_eq!((after[0].clone(), after[2].clone()), (before[0].clone(), before[2].clone()));
+        document.apply(recto_core::op::Op::DeleteAnnotation { target });
+        assert_ne!(marks(&document)[1], after[1]);
     }
 
     #[test]
