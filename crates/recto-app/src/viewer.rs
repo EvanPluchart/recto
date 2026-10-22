@@ -162,6 +162,8 @@ impl Known {
             match op {
                 recto_core::op::Op::AddAnnotation { page, .. }
                 | recto_core::op::Op::Redact { page, .. }
+                | recto_core::op::Op::Erase { page, .. }
+                | recto_core::op::Op::DeleteImage { page, .. }
                 | recto_core::op::Op::AddTextLayer { page, .. }
                 | recto_core::op::Op::EditText { page, .. } => {
                     by_page.entry(*page).or_default().push(id)

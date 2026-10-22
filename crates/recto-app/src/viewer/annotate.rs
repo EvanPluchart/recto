@@ -34,6 +34,10 @@ pub enum Tool {
     Signature,
     /// Removes what lies under a dragged area.
     Redact,
+    /// Erases what lies under a dragged area (white).
+    Erase,
+    /// Deletes the image under a click.
+    DeleteImage,
     /// Shows only a dragged area of the page (or of the selected pages).
     Crop,
     /// Changes the text of a line (beta).
@@ -41,7 +45,7 @@ pub enum Tool {
 }
 
 impl Tool {
-    pub const ALL: [Tool; 15] = [
+    pub const ALL: [Tool; 17] = [
         Tool::Select,
         Tool::Text,
         Tool::Highlight,
@@ -55,6 +59,8 @@ impl Tool {
         Tool::Image,
         Tool::Signature,
         Tool::Redact,
+        Tool::Erase,
+        Tool::DeleteImage,
         Tool::Crop,
         Tool::EditText,
     ];
@@ -75,6 +81,8 @@ impl Tool {
             Tool::Image => "image",
             Tool::Signature => "signature",
             Tool::Redact => "redact",
+            Tool::Erase => "erase",
+            Tool::DeleteImage => "deleteimage",
             Tool::Crop => "crop",
             Tool::EditText => "edit",
         }
@@ -99,6 +107,8 @@ impl Tool {
             Tool::Image => "Image",
             Tool::Signature => "Sign",
             Tool::Redact => "Redact",
+            Tool::Erase => "Erase",
+            Tool::DeleteImage => "Delete an image",
             Tool::Crop => "Crop",
             Tool::EditText => "Edit text (beta)",
         }
@@ -212,6 +222,7 @@ impl Viewer {
         let Some((page, at)) = self.page_point(event.position) else { return };
         match self.tool {
             Tool::Text => self.start_text(page, at, window, cx),
+            Tool::DeleteImage => self.delete_image_at(page, at, window, cx),
             Tool::EditText => self.start_text_edit(page, at, window, cx),
             Tool::Image => self.prompt_image(page, at, window, cx),
             Tool::Signature => match self.signature.clone() {
@@ -280,15 +291,17 @@ impl Viewer {
         let (Some(&first), Some(&last)) = (points.first(), points.last()) else { return };
         let area = span(first, last);
         let tiny = area.width < 3.0 && area.height < 3.0;
-        if !tiny && matches!(self.tool, Tool::Redact | Tool::Crop) {
+        if !tiny && matches!(self.tool, Tool::Redact | Tool::Erase | Tool::Crop) {
             let area = geometry.rect_to_user(area);
             let Some(id) = self.open().and_then(|open| open.page_states.get(page)).map(|state| state.id) else { return };
-            let op = if self.tool == Tool::Redact {
-                Op::Redact { page: id, area }
-            } else {
-                // The selected pages when the area is drawn on one of them, else this page.
-                let selected = self.target_pages();
-                Op::CropPages { pages: if selected.contains(&id) { selected } else { vec![id] }, area }
+            let op = match self.tool {
+                Tool::Redact => Op::Redact { page: id, area },
+                Tool::Erase => Op::Erase { page: id, area },
+                _ => {
+                    // The selected pages when the area is drawn on one of them, else this page.
+                    let selected = self.target_pages();
+                    Op::CropPages { pages: if selected.contains(&id) { selected } else { vec![id] }, area }
+                }
             };
             return self.edit(op, window, cx);
         }
@@ -458,7 +471,7 @@ impl Viewer {
                 move |bounds, _, window, _| {
                     let at = |p: Point| point(bounds.origin.x + px(p.x * zoom), bounds.origin.y + px(p.y * zoom));
                     let (Some(&first), Some(&last)) = (points.first(), points.last()) else { return };
-                    if matches!(tool, Tool::Redact | Tool::Crop) {
+                    if matches!(tool, Tool::Redact | Tool::Erase | Tool::Crop) {
                         let r = span(first, last);
                         let mut fill = PathBuilder::fill();
                         fill.move_to(at(Point { x: r.x, y: r.y }));
@@ -466,7 +479,11 @@ impl Viewer {
                         fill.line_to(at(Point { x: r.right(), y: r.bottom() }));
                         fill.line_to(at(Point { x: r.x, y: r.bottom() }));
                         fill.close();
-                        let shade = if tool == Tool::Redact { gpui::rgba(0x0000_00aa) } else { gpui::rgba(0x2f6f_ef33) };
+                        let shade = match tool {
+                            Tool::Redact => gpui::rgba(0x0000_00aa),
+                            Tool::Erase => gpui::rgba(0xffff_ffdd),
+                            _ => gpui::rgba(0xff6b_3533),
+                        };
                         if let Ok(path) = fill.build() {
                             window.paint_path(path, shade);
                         }
@@ -510,5 +527,14 @@ impl Viewer {
             .h(px(frame.3))
             .into_any_element(),
         )
+    }
+}
+
+impl Viewer {
+    /// Deletes the image under displayed point `at` of page `page`, if there is one.
+    fn delete_image_at(&mut self, page: usize, at: Point, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(geometry) = self.geometry(page) else { return };
+        let Some(id) = self.open().and_then(|open| open.page_states.get(page)).map(|state| state.id) else { return };
+        self.edit(Op::DeleteImage { page: id, at: geometry.to_user(at) }, window, cx);
     }
 }

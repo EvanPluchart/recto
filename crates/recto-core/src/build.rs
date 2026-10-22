@@ -167,9 +167,9 @@ impl Document {
 
         // Annotations and redactions on pages that are part of this output, in log order: a
         // redaction deletes the annotations made before it.
-        let mut redactions: Vec<(ObjectId, Vec<Rect>)> = Vec::new();
+        let mut redactions: Vec<(ObjectId, Vec<(Rect, bool)>)> = Vec::new();
         for (serial, op) in self.ops().iter().enumerate() {
-            let (Op::AddAnnotation { page, .. } | Op::Redact { page, .. }) = op else { continue };
+            let (Op::AddAnnotation { page, .. } | Op::Redact { page, .. } | Op::Erase { page, .. }) = op else { continue };
             if !pages.iter().any(|state| state.id == *page) {
                 continue;
             }
@@ -182,11 +182,12 @@ impl Document {
                         annot::attach(&mut base, id, written)?;
                     }
                 }
-                Op::Redact { area, .. } => {
+                Op::Redact { area, .. } | Op::Erase { area, .. } => {
                     redact::remove_annotations(&mut base, id, &[*area])?;
+                    let painted = (*area, matches!(op, Op::Erase { .. }));
                     match redactions.iter_mut().find(|(page, _)| *page == id) {
-                        Some((_, areas)) => areas.push(*area),
-                        None => redactions.push((id, vec![*area])),
+                        Some((_, areas)) => areas.push(painted),
+                        None => redactions.push((id, vec![painted])),
                     }
                 }
                 _ => {}
@@ -220,6 +221,15 @@ impl Document {
                 if let (false, Some(&id)) = (here.is_empty(), objects.get(&page.id)) {
                     textedit::apply(&mut base, id, &here, &embedded)?;
                 }
+            }
+        }
+        // Images deleted by a click, from the page's own content.
+        for op in self.ops() {
+            if let Op::DeleteImage { page, at } = op
+                && pages.iter().any(|state| state.id == *page)
+                && let Some(&id) = objects.get(page)
+            {
+                redact::remove_image_at(&mut base, id, *at)?;
             }
         }
         // Recognised text goes in before redaction, so redaction removes it too.

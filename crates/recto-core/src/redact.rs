@@ -29,8 +29,11 @@ use crate::geom::{Point, Rect};
 /// Nested forms deeper than this are removed instead of interpreted.
 const MAX_DEPTH: usize = 12;
 
-/// Removes what lies under `areas` (user space) on `page` and paints the areas black.
-pub fn redact_page(document: &mut lopdf::Document, page: ObjectId, areas: &[Rect]) -> lopdf::Result<Vec<ObjectId>> {
+/// Removes what lies under the areas (user space) on `page` and paints each one black, or white
+/// when its flag is set (erasing).
+pub fn redact_page(document: &mut lopdf::Document, page: ObjectId, painted: &[(Rect, bool)]) -> lopdf::Result<Vec<ObjectId>> {
+    let areas: Vec<Rect> = painted.iter().map(|(area, _)| *area).collect();
+    let areas = areas.as_slice();
     if areas.is_empty() {
         return Ok(Vec::new());
     }
@@ -51,11 +54,11 @@ pub fn redact_page(document: &mut lopdf::Document, page: ObjectId, areas: &[Rect
 
     let mut content = b"q\n".to_vec();
     content.extend(Content { operations }.encode()?);
-    content.extend_from_slice(b"\nQ\nq 0 g\n");
-    for area in areas {
-        content.extend(format!("{} {} {} {} re f\n", area.origin.x, area.origin.y, area.width, area.height).into_bytes());
+    content.extend_from_slice(b"\nQ\n");
+    for (area, white) in painted {
+        let gray = if *white { 1 } else { 0 };
+        content.extend(format!("q {gray} g {} {} {} {} re f Q\n", area.origin.x, area.origin.y, area.width, area.height).into_bytes());
     }
-    content.extend_from_slice(b"Q\n");
 
     for (id, object) in created {
         document.objects.insert(id, object);
@@ -186,6 +189,55 @@ pub fn remove_annotations(document: &mut lopdf::Document, page: ObjectId, areas:
     Ok(())
 }
 
+
+/// Removes the topmost image drawn at `at` (user space) by the content of `page` itself:
+/// image XObjects and inline images. Returns whether one was found. Shared objects are not
+/// modified: the page gets new content.
+pub fn remove_image_at(document: &mut lopdf::Document, page: ObjectId, at: Point) -> lopdf::Result<bool> {
+    let bytes = document.get_page_content(page);
+    let Ok(content) = Content::decode(&bytes) else { return Ok(false) };
+    let mut operations = content.operations;
+    let resources = document.get_dictionary(page)?.get(b"Resources").ok().and_then(|value| dictionary(document, value)).cloned().unwrap_or_default();
+    let xobjects = resources.get(b"XObject").ok().and_then(|value| dictionary(document, value)).cloned().unwrap_or_default();
+    let unit = Rect { origin: Point { x: 0.0, y: 0.0 }, width: 1.0, height: 1.0 };
+    let mut stack = Vec::new();
+    let mut ctm = Matrix::IDENTITY;
+    let mut hit = None;
+    for (index, operation) in operations.iter().enumerate() {
+        match operation.operator.as_str() {
+            "q" => stack.push(ctm),
+            "Q" => ctm = stack.pop().unwrap_or(ctm),
+            "cm" => {
+                if let Some(matrix) = Matrix::from_operands(&operation.operands) {
+                    ctm = matrix.then(ctm);
+                }
+            }
+            "Do" | "BI" => {
+                let image = operation.operator == "BI"
+                    || operation
+                        .operands
+                        .first()
+                        .and_then(|value| value.as_name().ok())
+                        .and_then(|name| xobjects.get(name).ok())
+                        .and_then(|value| resolve(document, value).as_stream().ok())
+                        .is_some_and(|stream| stream.dict.get(b"Subtype").ok().and_then(|value| value.as_name().ok()) == Some(b"Image"));
+                let shown = ctm.bounds(unit);
+                let inside = at.x >= shown.origin.x && at.x <= shown.origin.x + shown.width && at.y >= shown.origin.y && at.y <= shown.origin.y + shown.height;
+                if image && inside {
+                    hit = Some(index);
+                }
+            }
+            _ => {}
+        }
+    }
+    let Some(index) = hit else { return Ok(false) };
+    operations.remove(index);
+    let mut stream = Stream::new(Dictionary::new(), Content { operations }.encode()?);
+    let _ = stream.compress();
+    let contents = document.add_object(stream);
+    document.get_dictionary_mut(page)?.set("Contents", Object::Reference(contents));
+    Ok(true)
+}
 /// Rectangles from files can be degenerate (a line has no width); give them some extent.
 fn grow(rect: Rect) -> Rect {
     Rect { origin: Point { x: rect.origin.x - 0.5, y: rect.origin.y - 0.5 }, width: rect.width + 1.0, height: rect.height + 1.0 }
@@ -758,6 +810,23 @@ mod tests {
         }
     }
 
+
+    #[test]
+    fn erases_in_white_and_deletes_images() {
+        let mut document = Document::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/redact.pdf")).unwrap();
+        let page = PageId { source: 0, index: 0 };
+        document.apply(Op::Erase { page, area: areas()[0] });
+        document.apply(Op::DeleteImage { page, at: Point { x: 400.0, y: 550.0 } });
+        // Nothing there: nothing happens.
+        document.apply(Op::DeleteImage { page, at: Point { x: 10.0, y: 10.0 } });
+        let bytes = document.build().unwrap();
+        let reopened = lopdf::Document::load_mem(&bytes).unwrap();
+        let first = *reopened.get_pages().values().next().unwrap();
+        let content = String::from_utf8_lossy(&reopened.get_page_content(first)).into_owned();
+        assert!(content.contains("q 1 g") && !content.contains("q 0 g"), "painted white: {content}");
+        assert!(!content.contains("/Im1 Do") && content.contains("/Fm1 Do"), "{content}");
+        assert!(!reopened.extract_text(&[1]).unwrap().contains("ALPHATOKEN"));
+    }
     #[test]
     fn unknown_code_lengths_remove_the_whole_string() {
         let mut fonts = Dictionary::new();

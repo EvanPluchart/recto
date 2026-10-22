@@ -38,8 +38,8 @@ Legend: milestone where it lands, or `later` / `no`.
 | Area | Feature | Status |
 |---|---|---|
 | Annotate | Select, move, resize, delete annotations after they are made | done for annotations made in Recto (Select tool, edit mode); not for those already in the file |
-| Edit | Whiteout (cover in white) | missing (redaction paints black) |
-| Edit | Delete an existing image | missing |
+| Edit | Whiteout (cover in white) | done: Erase removes the content like redaction and paints the area white |
+| Edit | Delete an existing image | done: a click removes the topmost image drawn by the page there |
 | Sign | Several handwriting styles and ink colours, signature from an image | missing (one typed style, black) |
 | Text | Find and replace | missing |
 | Annotate | Freehand highlighter, hide annotations | missing |

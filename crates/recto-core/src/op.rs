@@ -2,7 +2,7 @@
 
 use crate::PageId;
 use crate::annot::Annotation;
-use crate::geom::Rect;
+use crate::geom::{Point, Rect};
 use crate::meta::Metadata;
 use crate::stamp::Stamp;
 use crate::textedit::TextEdit;
@@ -46,6 +46,10 @@ pub enum Op {
     FillField { name: String, value: String },
     /// Removes what lies under `area` on `page` (see `redact.rs`) and paints it black.
     Redact { page: PageId, area: Rect },
+    /// Like `Redact`, but paints the area white: erases what is there.
+    Erase { page: PageId, area: Rect },
+    /// Removes the image drawn at `at` (user space) on `page`, the topmost one there.
+    DeleteImage { page: PageId, at: Point },
     /// Shows only `area` (user space) of each page: sets the crop box.
     CropPages { pages: Vec<PageId>, area: Rect },
     /// Text drawn on pages: watermark, page numbers, header or footer.
@@ -98,6 +102,8 @@ pub fn replay(initial: &[PageId], ops: &[Op]) -> Vec<PageState> {
             | Op::UpdateAnnotation { .. }
             | Op::DeleteAnnotation { .. }
             | Op::Redact { .. }
+            | Op::Erase { .. }
+            | Op::DeleteImage { .. }
             | Op::CropPages { .. }
             | Op::AddStamp(_)
             | Op::AddTextLayer { .. }

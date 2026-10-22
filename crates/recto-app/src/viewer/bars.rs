@@ -40,7 +40,7 @@ const TOOL_GROUPS: [&[Tool]; 5] = [
     &[Tool::Text, Tool::Highlight, Tool::Underline, Tool::StrikeOut],
     &[Tool::Rectangle, Tool::Ellipse, Tool::Line, Tool::Arrow, Tool::Freehand],
     &[Tool::Image, Tool::Signature],
-    &[Tool::Redact, Tool::Crop, Tool::EditText],
+    &[Tool::Redact, Tool::Erase, Tool::DeleteImage, Tool::Crop, Tool::EditText],
 ];
 
 fn tool_icon(tool: Tool) -> &'static str {
@@ -58,6 +58,8 @@ fn tool_icon(tool: Tool) -> &'static str {
         Tool::Image => "image",
         Tool::Signature => "signature",
         Tool::Redact => "eye-off",
+        Tool::Erase => "eraser",
+        Tool::DeleteImage => "image-off",
         Tool::Crop => "crop",
         Tool::EditText => "text-cursor-input",
     }
@@ -268,7 +270,7 @@ impl Viewer {
                 );
             }
         }
-        bar = bar.child(div().flex_1()).child(div().text_xs().text_color(theme.muted).mr(px(6.)).child(t("Color")));
+        bar = bar.child(div().flex_1());
         for (n, color) in COLORS.into_iter().enumerate() {
             let active = self.inspector.color == color;
             bar = bar.child(

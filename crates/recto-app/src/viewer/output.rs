@@ -57,7 +57,7 @@ impl Viewer {
 
     /// Whether the document has redactions, which saving makes final.
     fn has_redactions(&self) -> bool {
-        self.open().is_some_and(|open| open.document.ops().iter().any(|op| matches!(op, Op::Redact { .. })))
+        self.open().is_some_and(|open| open.document.ops().iter().any(|op| matches!(op, Op::Redact { .. } | Op::Erase { .. })))
     }
 
     /// Runs `then` at once, or after the reader agrees, when the document has redactions: the

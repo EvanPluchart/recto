@@ -98,11 +98,12 @@ pub fn parse_edits(spec: &str) -> Result<Vec<EditSpec>, String> {
                     let numbers = fields.map(coordinate).collect::<Result<Vec<f32>, _>>()?;
                     let points: Vec<Point> = match tool {
                         // X:Y:W:H → two corners.
-                        Tool::Rectangle | Tool::Ellipse | Tool::Highlight | Tool::Underline | Tool::StrikeOut | Tool::Redact | Tool::Crop
+                        Tool::Rectangle | Tool::Ellipse | Tool::Highlight | Tool::Underline | Tool::StrikeOut | Tool::Redact | Tool::Erase | Tool::Crop
                             if numbers.len() == 4 =>
                         {
                             vec![Point { x: numbers[0], y: numbers[1] }, Point { x: numbers[0] + numbers[2], y: numbers[1] + numbers[3] }]
                         }
+                        Tool::DeleteImage if numbers.len() == 2 => vec![Point { x: numbers[0], y: numbers[1] }],
                         Tool::Line | Tool::Arrow | Tool::Freehand if numbers.len() >= 4 && numbers.len() % 2 == 0 => {
                             numbers.chunks(2).map(|pair| Point { x: pair[0], y: pair[1] }).collect()
                         }
@@ -308,9 +309,15 @@ impl Viewer {
                     let area = |a: Point, b: Point| {
                         page.rect_to_user(PageRect { x: a.x.min(b.x), y: a.y.min(b.y), width: (a.x - b.x).abs(), height: (a.y - b.y).abs() })
                     };
-                    if matches!(tool, Tool::Redact | Tool::Crop) {
+                    if tool == Tool::DeleteImage {
+                        document.apply(Op::DeleteImage { page: state.id, at: user[0] });
+                        continue;
+                    }
+                    if matches!(tool, Tool::Redact | Tool::Erase | Tool::Crop) {
                         let rect = area(points[0], points[1]);
-                        document.apply(if tool == Tool::Redact {
+                        document.apply(if tool == Tool::Erase {
+                            Op::Erase { page: state.id, area: rect }
+                        } else if tool == Tool::Redact {
                             Op::Redact { page: state.id, area: rect }
                         } else {
                             Op::CropPages { pages: vec![state.id], area: rect }

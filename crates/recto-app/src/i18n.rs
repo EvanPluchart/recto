@@ -201,6 +201,8 @@ const FR: &[(&str, &str)] = &[
     ("Close (Esc)", "Fermer (Échap)"),
     ("Position", "Position"),
     ("Del", "Suppr"),
+    ("Erase", "Effacer"),
+    ("Delete an image", "Supprimer une image"),
     ("Edit", "Modifier"),
     ("Done", "Terminer"),
     ("Annotate, sign, organize pages and use the document tools", "Annoter, signer, organiser les pages et utiliser les outils du document"),
