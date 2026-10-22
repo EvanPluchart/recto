@@ -1,7 +1,7 @@
 //! AcroForm fields (decision 0003): read with `lopdf`, filled through `Op::FillField`, written
 //! with generated appearances, and optionally flattened into the page content.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use lopdf::{Dictionary, Object, ObjectId, Stream};
 
@@ -122,7 +122,12 @@ fn walk(document: &lopdf::Document, pages: &HashMap<ObjectId, u32>, source: u32)
     let mut found = Vec::new();
     let mut stack: Vec<(ObjectId, Inherited, usize)> =
         fields.iter().filter_map(|f| f.as_reference().ok()).map(|id| (id, Inherited::default(), 0)).rev().collect();
+    // A field reached twice (a crafted cycle or shared kids) is read once.
+    let mut seen = HashSet::new();
     while let Some((id, parent, depth)) = stack.pop() {
+        if !seen.insert(id) {
+            continue;
+        }
         let Ok(node) = document.get_dictionary(id) else { continue };
         let mut own = parent.clone();
         if let Some(part) = node.get(b"T").ok().and_then(decode) {
@@ -613,6 +618,27 @@ mod tests {
     use super::*;
     use crate::op::Op;
     use crate::{BuildOptions, Document};
+
+    #[test]
+    fn a_field_listing_itself_as_kid_is_read_once() {
+        // A crafted cycle, each node twice: without a visited set the walk never ends.
+        let mut document = lopdf::Document::with_version("1.7");
+        let id = document.new_object_id();
+        let mut field = Dictionary::new();
+        field.set("T", Object::string_literal("loop"));
+        field.set("FT", Object::Name(b"Tx".to_vec()));
+        field.set("Kids", Object::Array(vec![Object::Reference(id), Object::Reference(id)]));
+        document.objects.insert(id, Object::Dictionary(field));
+        let mut form = Dictionary::new();
+        form.set("Fields", Object::Array(vec![Object::Reference(id)]));
+        let form = document.add_object(form);
+        let mut catalog = Dictionary::new();
+        catalog.set("Type", Object::Name(b"Catalog".to_vec()));
+        catalog.set("AcroForm", Object::Reference(form));
+        let catalog = document.add_object(catalog);
+        document.trailer.set("Root", Object::Reference(catalog));
+        assert!(fields(&document, 0).len() <= 1);
+    }
 
     fn forms() -> Document {
         Document::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/forms.pdf")).unwrap()

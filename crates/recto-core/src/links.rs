@@ -9,6 +9,8 @@ use crate::content::{dictionary, resolve};
 use crate::geom::{Point, Rect};
 
 const MAX_DEPTH: usize = 32;
+/// Most name-tree nodes visited for one lookup.
+const MAX_NODES: usize = 10_000;
 
 /// A destination (array, or a name to look up) as a page of the source.
 fn destination(document: &lopdf::Document, value: &Object, pages: &[ObjectId], source: u32, depth: usize) -> Option<PageId> {
@@ -35,7 +37,8 @@ fn destination(document: &lopdf::Document, value: &Object, pages: &[ObjectId], s
                 .and_then(|value| dictionary(document, value))
                 .and_then(|names| names.get(b"Dests").ok())
                 .and_then(|value| dictionary(document, value))?;
-            let found = lookup(document, tree, name, 0)?;
+            let mut budget = MAX_NODES;
+            let found = lookup(document, tree, name, 0, &mut budget)?;
             destination(document, found, pages, source, depth + 1)
         }
         _ => None,
@@ -43,10 +46,12 @@ fn destination(document: &lopdf::Document, value: &Object, pages: &[ObjectId], s
 }
 
 /// Looks `key` up in a name tree.
-fn lookup<'a>(document: &'a lopdf::Document, node: &'a Dictionary, key: &[u8], depth: usize) -> Option<&'a Object> {
-    if depth > MAX_DEPTH {
+fn lookup<'a>(document: &'a lopdf::Document, node: &'a Dictionary, key: &[u8], depth: usize, budget: &mut usize) -> Option<&'a Object> {
+    // Depth alone does not bound a crafted tree whose kids repeat themselves: count nodes too.
+    if depth > MAX_DEPTH || *budget == 0 {
         return None;
     }
+    *budget -= 1;
     if let Ok(names) = node.get(b"Names").map(|value| resolve(document, value)).and_then(Object::as_array) {
         for pair in names.chunks(2) {
             if let [name, value] = pair
@@ -58,7 +63,19 @@ fn lookup<'a>(document: &'a lopdf::Document, node: &'a Dictionary, key: &[u8], d
         }
     }
     let kids = node.get(b"Kids").map(|value| resolve(document, value)).and_then(Object::as_array).ok()?;
-    kids.iter().filter_map(|kid| dictionary(document, kid)).find_map(|kid| lookup(document, kid, key, depth + 1))
+    kids.iter().filter_map(|kid| dictionary(document, kid)).find_map(|kid| lookup(document, kid, key, depth + 1, budget))
+}
+
+/// Address schemes a link may open: web pages, mail and phone. Anything else (`file:`, a bare
+/// path, a network share, an app protocol) could run a program and is refused.
+const SAFE_SCHEMES: [&str; 4] = ["http", "https", "mailto", "tel"];
+
+/// Whether following `uri` is safe: an allowed scheme and no control or direction characters
+/// that could disguise the address in the confirmation.
+pub fn is_safe_uri(uri: &str) -> bool {
+    let Some((scheme, rest)) = uri.split_once(':') else { return false };
+    let hidden = |c: char| c.is_control() || matches!(c, '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}');
+    SAFE_SCHEMES.iter().any(|safe| scheme.eq_ignore_ascii_case(safe)) && !rest.is_empty() && !uri.chars().any(hidden)
 }
 
 /// The links of page `page` (an object of `document`, whose pages are `pages` in order).
@@ -104,4 +121,27 @@ pub fn read(document: &lopdf::Document, page: ObjectId, pages: &[ObjectId], sour
         }
     }
     links
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_safe_uri;
+
+    #[test]
+    fn only_web_mail_and_phone_links_are_followed() {
+        for safe in ["https://example.org/a", "HTTP://example.org", "mailto:a@b.c", "tel:+33100000000"] {
+            assert!(is_safe_uri(safe), "{safe}");
+        }
+        for unsafe_ in [
+            "file:///C:/Windows/System32/cmd.exe",
+            r"C:\Windows\System32\cmd.exe",
+            r"\\host\share\x.lnk",
+            "search-ms:query=x",
+            "javascript:alert(1)",
+            "https:",
+            "https://example.org/\u{202E}exe.pdf",
+        ] {
+            assert!(!is_safe_uri(unsafe_), "{unsafe_}");
+        }
+    }
 }

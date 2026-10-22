@@ -141,7 +141,7 @@ fn convert_image(document: &lopdf::Document, image: &Stream) -> Option<Stream> {
         let base = convertible(document, &Dictionary::new(), items.get(1)?)?;
         let palette = match resolve(document, items.get(3)?) {
             Object::String(bytes, _) => bytes.clone(),
-            Object::Stream(stream) => stream.decompressed_content().unwrap_or_else(|_| stream.content.clone()),
+            Object::Stream(stream) => stream.decompressed_content_with_limit(crate::content::MAX_STREAM_BYTES).unwrap_or_else(|_| stream.content.clone()),
             _ => return None,
         };
         let gray: Vec<u8> = palette
@@ -208,7 +208,7 @@ pub fn convert(document: &mut lopdf::Document) {
 
     for (id, resources) in contents {
         let Ok(stream) = document.get_object(id).and_then(Object::as_stream) else { continue };
-        let Ok(bytes) = (if stream.dict.has(b"Filter") { stream.decompressed_content() } else { Ok(stream.content.clone()) }) else { continue };
+        let Ok(bytes) = (if stream.dict.has(b"Filter") { stream.decompressed_content_with_limit(crate::content::MAX_STREAM_BYTES) } else { Ok(stream.content.clone()) }) else { continue };
         let Ok(content) = Content::decode(&bytes) else { continue };
         let operations = convert_content(document, &resources, content.operations);
         let Ok(encoded) = (Content { operations }).encode() else { continue };

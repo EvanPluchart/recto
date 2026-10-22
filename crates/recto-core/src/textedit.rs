@@ -138,7 +138,7 @@ fn style_of(document: &lopdf::Document, font: &Dictionary) -> FontStyle {
 
 /// The page's content operations and the page's fonts by resource name.
 pub(crate) fn read_page(document: &lopdf::Document, page: ObjectId) -> (Vec<Operation>, HashMap<Vec<u8>, Rc<PageFont>>) {
-    let operations = Content::decode(&document.get_page_content(page)).map(|content| content.operations).unwrap_or_default();
+    let operations = Content::decode(&crate::content::page_content(document, page)).map(|content| content.operations).unwrap_or_default();
     let mut fonts = HashMap::new();
     let resources = document.get_dictionary(page).ok().and_then(|page| page.get(b"Resources").ok()).and_then(|value| dictionary(document, value));
     if let Some(entries) = resources.and_then(|resources| resources.get(b"Font").ok()).and_then(|value| dictionary(document, value)) {

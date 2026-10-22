@@ -34,7 +34,7 @@ impl Charset {
             .get(b"ToUnicode")
             .ok()
             .and_then(|value| resolve(document, value).as_stream().ok())
-            .and_then(|stream| stream.decompressed_content().ok().or_else(|| Some(stream.content.clone())))
+            .and_then(|stream| stream.decompressed_content_with_limit(crate::content::MAX_STREAM_BYTES).ok().or_else(|| Some(stream.content.clone())))
             .map(|bytes| parse_to_unicode(&bytes));
         let mut charset = Charset::default();
 
@@ -57,7 +57,7 @@ impl Charset {
                 let identity = descendant.get(b"CIDToGIDMap").ok().map(|value| resolve(document, value));
                 let gid_map: Option<Vec<u8>> = match identity {
                     None | Some(Object::Name(_)) => None,
-                    Some(Object::Stream(stream)) => stream.decompressed_content().ok(),
+                    Some(Object::Stream(stream)) => stream.decompressed_content_with_limit(crate::content::MAX_STREAM_BYTES).ok(),
                     Some(_) => None,
                 };
                 if let Some(program) = program
@@ -169,11 +169,11 @@ fn is_embedded(descriptor: &Dictionary) -> bool {
 fn font_program(document: &lopdf::Document, descriptor: &Dictionary) -> Option<Vec<u8>> {
     if let Ok(value) = descriptor.get(b"FontFile2") {
         let stream = resolve(document, value).as_stream().ok()?;
-        return stream.decompressed_content().ok().or_else(|| (!stream.dict.has(b"Filter")).then(|| stream.content.clone()));
+        return stream.decompressed_content_with_limit(crate::content::MAX_STREAM_BYTES).ok().or_else(|| (!stream.dict.has(b"Filter")).then(|| stream.content.clone()));
     }
     let stream = resolve(document, descriptor.get(b"FontFile3").ok()?).as_stream().ok()?;
     // Bare CFF (Type1C, CIDFontType0C) is not read; OpenType is.
-    (stream.dict.get(b"Subtype").ok()?.as_name().ok()? == b"OpenType").then(|| stream.decompressed_content().ok())?
+    (stream.dict.get(b"Subtype").ok()?.as_name().ok()? == b"OpenType").then(|| stream.decompressed_content_with_limit(crate::content::MAX_STREAM_BYTES).ok())?
 }
 
 /// Glyph of a code in a simple TrueType font: through its (3,1) Unicode, (3,0) symbol or
@@ -264,6 +264,8 @@ pub fn parse_to_unicode(bytes: &[u8]) -> (HashMap<Code, String>, Vec<usize>) {
     let mut lengths = Vec::new();
     let mut section: &[u8] = b"";
     let mut t = 0;
+    // Codes written by all ranges together: many overlapping ranges must not run for ever either.
+    let mut room: u32 = 1 << 20;
     while t < tokens.len() {
         match &tokens[t] {
             Token::Word(word) if word.starts_with(b"begin") => {
@@ -299,6 +301,11 @@ pub fn parse_to_unicode(bytes: &[u8]) -> (HashMap<Code, String>, Vec<usize>) {
                 let code_of = |n: u32| n.to_be_bytes()[4 - width.min(4)..].to_vec();
                 // Bounded so a broken range cannot run for ever.
                 let last = last.min(first.saturating_add(65_535));
+                if room == 0 {
+                    break;
+                }
+                let last = last.min(first.saturating_add(room - 1));
+                room -= last.saturating_sub(first) + 1;
                 match target {
                     Token::Hex(start) => {
                         for (offset, n) in (first..=last).enumerate() {

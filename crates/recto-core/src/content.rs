@@ -92,6 +92,15 @@ pub fn overlaps(a: &Rect, b: &Rect) -> bool {
         && b.origin.y < a.origin.y + a.height
 }
 
+/// Most bytes one stream may inflate to: a small crafted stream (a decompression bomb) must
+/// not exhaust memory.
+pub const MAX_STREAM_BYTES: usize = 256 << 20;
+
+/// The decoded content of page `page`, empty when it would inflate past `MAX_STREAM_BYTES`.
+pub fn page_content(document: &lopdf::Document, page: lopdf::ObjectId) -> Vec<u8> {
+    document.get_page_content_with_limit(page, MAX_STREAM_BYTES).unwrap_or_default()
+}
+
 /// Follows a reference.
 pub fn resolve<'a>(document: &'a lopdf::Document, object: &'a Object) -> &'a Object {
     match object {
@@ -405,7 +414,7 @@ pub(crate) fn decode_image(document: &lopdf::Document, image: &Stream) -> Option
             if !filters.iter().all(supported) {
                 return None;
             }
-            if filters.is_empty() { image.content.clone() } else { image.decompressed_content().ok()? }
+            if filters.is_empty() { image.content.clone() } else { image.decompressed_content_with_limit(size.saturating_add(1 << 20)).ok()? }
         }
     };
     (data.len() >= size).then(|| Pixels { width, height, components, data: data[..size].to_vec() })

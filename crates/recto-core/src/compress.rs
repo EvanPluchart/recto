@@ -20,6 +20,8 @@ const QUALITY: u8 = 75;
 /// Images are resampled only when they exceed the target by this factor.
 const SLACK: f32 = 1.3;
 const MAX_FORM_DEPTH: usize = 12;
+/// Most form XObjects drawn while measuring the images of a document.
+const MAX_FORM_VISITS: usize = 100_000;
 
 /// A JPEG of `data` (8-bit, `components` 1 or 3), with `image`'s dictionary.
 pub(crate) fn jpeg(image: &Stream, data: &[u8], width: usize, height: usize, components: usize) -> Option<Stream> {
@@ -46,7 +48,7 @@ pub(crate) fn jpeg(image: &Stream, data: &[u8], width: usize, height: usize, com
 
 /// The largest size each image is drawn at on the pages, in points (width, height).
 fn drawn_sizes(document: &lopdf::Document) -> HashMap<ObjectId, (f32, f32)> {
-    fn walk(document: &lopdf::Document, bytes: &[u8], resources: &Dictionary, ctm: Matrix, depth: usize, sizes: &mut HashMap<ObjectId, (f32, f32)>) {
+    fn walk(document: &lopdf::Document, bytes: &[u8], resources: &Dictionary, ctm: Matrix, depth: usize, sizes: &mut HashMap<ObjectId, (f32, f32)>, budget: &mut usize) {
         let Ok(content) = Content::decode(bytes) else { return };
         let xobjects = resources.get(b"XObject").ok().and_then(|value| dictionary(document, value));
         let mut stack = Vec::new();
@@ -75,11 +77,12 @@ fn drawn_sizes(document: &lopdf::Document) -> HashMap<ObjectId, (f32, f32)> {
                                 *size = (size.0.max(width), size.1.max(height));
                             }
                         }
-                        Some(b"Form") if depth < MAX_FORM_DEPTH => {
+                        Some(b"Form") if depth < MAX_FORM_DEPTH && *budget > 0 => {
+                            *budget -= 1;
                             let matrix = Matrix::from_object(stream.dict.get(b"Matrix").ok());
                             let own = stream.dict.get(b"Resources").ok().and_then(|value| dictionary(document, value));
-                            let bytes = stream.decompressed_content().unwrap_or_else(|_| stream.content.clone());
-                            walk(document, &bytes, own.unwrap_or(resources), matrix.then(ctm), depth + 1, sizes);
+                            let bytes = stream.decompressed_content_with_limit(crate::content::MAX_STREAM_BYTES).unwrap_or_else(|_| stream.content.clone());
+                            walk(document, &bytes, own.unwrap_or(resources), matrix.then(ctm), depth + 1, sizes, budget);
                         }
                         _ => {}
                     }
@@ -90,10 +93,12 @@ fn drawn_sizes(document: &lopdf::Document) -> HashMap<ObjectId, (f32, f32)> {
     }
 
     let mut sizes = HashMap::new();
+    // Forms drawn in all: a form drawing itself ten times, nested, would be visited 10^12 times.
+    let mut budget = MAX_FORM_VISITS;
     for page in document.get_pages().into_values() {
         let Ok(page_dictionary) = document.get_dictionary(page) else { continue };
         let resources = page_dictionary.get(b"Resources").ok().and_then(|value| dictionary(document, value)).cloned().unwrap_or_default();
-        walk(document, &document.get_page_content(page), &resources, Matrix::IDENTITY, 0, &mut sizes);
+        walk(document, &crate::content::page_content(document, page), &resources, Matrix::IDENTITY, 0, &mut sizes, &mut budget);
     }
     sizes
 }

@@ -225,6 +225,7 @@ const FR: &[(&str, &str)] = &[
     ("A web address (https://…) or a page number.", "Une adresse web (https://…) ou un numéro de page."),
     ("Enter an address or a page number.", "Entrez une adresse ou un numéro de page."),
     ("Open this link in your browser?", "Ouvrir ce lien dans votre navigateur ?"),
+    ("This link was blocked, it does not lead to a web page:", "Ce lien a été bloqué, il ne mène pas à une page web :"),
     ("Open", "Ouvrir"),
     ("Click a stamp, or type your own text.", "Cliquez sur un tampon, ou tapez votre texte."),
     ("APPROVED", "APPROUVÉ"),

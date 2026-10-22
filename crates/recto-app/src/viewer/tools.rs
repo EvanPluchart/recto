@@ -580,7 +580,7 @@ fn link_target(text: &str, pages: usize) -> Option<LinkTarget> {
         return (1..=pages).contains(&page).then(|| LinkTarget::Page(PageId { source: u32::MAX, index: page as u32 - 1 }));
     }
     let uri = if text.contains("://") || text.starts_with("mailto:") || text.starts_with("tel:") { text.to_owned() } else { format!("https://{text}") };
-    Some(LinkTarget::Uri(uri))
+    recto_core::links::is_safe_uri(&uri).then_some(LinkTarget::Uri(uri))
 }
 
 impl Viewer {

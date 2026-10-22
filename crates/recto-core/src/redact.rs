@@ -28,6 +28,8 @@ use crate::geom::{Point, Rect};
 
 /// Nested forms deeper than this are removed instead of interpreted.
 const MAX_DEPTH: usize = 12;
+/// Most form XObjects rewritten for one page; past it, forms over an area are removed.
+const MAX_FORMS: usize = 10_000;
 
 /// Removes what lies under the areas (user space) on `page` and paints each one black, or white
 /// when its flag is set (erasing).
@@ -37,7 +39,7 @@ pub fn redact_page(document: &mut lopdf::Document, page: ObjectId, painted: &[(R
     if areas.is_empty() {
         return Ok(Vec::new());
     }
-    let bytes = document.get_page_content(page);
+    let bytes = crate::content::page_content(document, page);
     let operations = Content::decode(&bytes).map(|content| content.operations).unwrap_or_default();
     let resources = document
         .get_dictionary(page)?
@@ -47,7 +49,7 @@ pub fn redact_page(document: &mut lopdf::Document, page: ObjectId, painted: &[(R
         .cloned()
         .unwrap_or_default();
 
-    let mut redactor = Redactor { document, areas, created: Vec::new(), next_id: document.max_id + 1, serial: 0, originals: Vec::new() };
+    let mut redactor = Redactor { document, areas, created: Vec::new(), next_id: document.max_id + 1, serial: 0, originals: Vec::new(), forms_left: MAX_FORMS };
     let (operations, resources) = redactor.run(operations, resources, Matrix::IDENTITY, 0);
     let created = std::mem::take(&mut redactor.created);
     let originals = std::mem::take(&mut redactor.originals);
@@ -102,7 +104,7 @@ pub fn forget(document: &mut lopdf::Document, originals: &[ObjectId]) -> lopdf::
         if listed.is_empty() {
             continue;
         }
-        let drawn: HashSet<Vec<u8>> = Content::decode(&document.get_page_content(page))
+        let drawn: HashSet<Vec<u8>> = Content::decode(&crate::content::page_content(document, page))
             .map(|content| {
                 content
                     .operations
@@ -194,7 +196,7 @@ pub fn remove_annotations(document: &mut lopdf::Document, page: ObjectId, areas:
 /// image XObjects and inline images. Returns whether one was found. Shared objects are not
 /// modified: the page gets new content.
 pub fn remove_image_at(document: &mut lopdf::Document, page: ObjectId, at: Point) -> lopdf::Result<bool> {
-    let bytes = document.get_page_content(page);
+    let bytes = crate::content::page_content(document, page);
     let Ok(content) = Content::decode(&bytes) else { return Ok(false) };
     let mut operations = content.operations;
     let resources = document.get_dictionary(page)?.get(b"Resources").ok().and_then(|value| dictionary(document, value)).cloned().unwrap_or_default();
@@ -291,6 +293,9 @@ struct Redactor<'a> {
     serial: usize,
     /// XObjects the page drew that were replaced by copies or removed.
     originals: Vec<ObjectId>,
+    /// Forms still allowed to be rewritten: a form drawing itself many times, nested, would
+    /// otherwise be copied an exponential number of times.
+    forms_left: usize,
 }
 
 impl Redactor<'_> {
@@ -612,10 +617,11 @@ impl Redactor<'_> {
                 if bbox.is_some_and(|bbox| !self.meets(to_user.bounds(bbox))) {
                     return Draw::Keep;
                 }
-                if depth >= MAX_DEPTH {
+                if depth >= MAX_DEPTH || self.forms_left == 0 {
                     return Draw::Remove;
                 }
-                let Ok(bytes) = (if stream.dict.has(b"Filter") { stream.decompressed_content() } else { Ok(stream.content.clone()) }) else {
+                self.forms_left -= 1;
+                let Ok(bytes) = (if stream.dict.has(b"Filter") { stream.decompressed_content_with_limit(crate::content::MAX_STREAM_BYTES) } else { Ok(stream.content.clone()) }) else {
                     return Draw::Remove;
                 };
                 let operations = Content::decode(&bytes).map(|content| content.operations).unwrap_or_default();
@@ -738,7 +744,7 @@ mod tests {
                 Object::Dictionary(dictionary) => dictionary.iter().for_each(|(_, value)| visit(value, found)),
                 Object::Stream(stream) => {
                     stream.dict.iter().for_each(|(_, value)| visit(value, found));
-                    found.push(stream.decompressed_content().unwrap_or_else(|_| stream.content.clone()));
+                    found.push(stream.decompressed_content_with_limit(crate::content::MAX_STREAM_BYTES).unwrap_or_else(|_| stream.content.clone()));
                 }
                 _ => {}
             }
@@ -786,7 +792,7 @@ mod tests {
             .iter()
             .filter_map(|(_, value)| document.get_object(value.as_reference().ok()?).ok()?.as_stream().ok())
             .filter(|stream| stream.dict.get(b"Subtype").unwrap().as_name().unwrap() == b"Image")
-            .map(|stream| stream.decompressed_content().unwrap())
+            .map(|stream| stream.decompressed_content_with_limit(crate::content::MAX_STREAM_BYTES).unwrap())
             .collect();
         assert_eq!(images.len(), 1);
         for row in images[0].chunks(60) {
@@ -799,7 +805,7 @@ mod tests {
         let bytes = redacted();
         let document = lopdf::Document::load_mem(&bytes).unwrap();
         let page = *document.get_pages().values().next().unwrap();
-        let content = String::from_utf8_lossy(&document.get_page_content(page)).into_owned();
+        let content = String::from_utf8_lossy(&crate::content::page_content(&document, page)).into_owned();
         // ALPHATOKEN replaced by an adjustment of its width: 10 glyphs of Helvetica.
         let width = text_width("ALPHATOKEN", 1000.0, Font::Helvetica);
         assert!(content.contains(&format!("[(Name: Alice ) {}( Smith)] TJ", -width)), "{content}");
@@ -837,7 +843,7 @@ mod tests {
         let mut resources = Dictionary::new();
         resources.set("Font", Object::Dictionary(fonts));
         let document = lopdf::Document::with_version("1.7");
-        let mut redactor = Redactor { document: &document, areas: &[area(150.0, 95.0, 160.0, 110.0)], created: Vec::new(), next_id: 1, serial: 0, originals: Vec::new() };
+        let mut redactor = Redactor { document: &document, areas: &[area(150.0, 95.0, 160.0, 110.0)], created: Vec::new(), next_id: 1, serial: 0, originals: Vec::new(), forms_left: MAX_FORMS };
         let operations = Content::decode(b"BT /F1 10 Tf 100 100 Td (abcdefgh) Tj (ij) Tj ET BT /F1 10 Tf 100 300 Td (kept) Tj ET").unwrap().operations;
         let (out, _) = redactor.run(operations, resources, Matrix::IDENTITY, 0);
         let shown: Vec<String> = out

@@ -26,6 +26,11 @@ impl Viewer {
                     self.go_to_page(index, window, cx);
                 }
             }
+            LinkTarget::Uri(uri) if !recto_core::links::is_safe_uri(&uri) => {
+                // `file:`, paths, shares and app protocols could run a program.
+                self.notice = Some(format!("{} {uri}", t("This link was blocked, it does not lead to a web page:")).into());
+                cx.notify();
+            }
             LinkTarget::Uri(uri) => {
                 // A PDF can point anywhere: say where before going.
                 let answer = window.prompt(PromptLevel::Info, t("Open this link in your browser?"), Some(&uri), &[t("Open"), t("Cancel")], cx);
