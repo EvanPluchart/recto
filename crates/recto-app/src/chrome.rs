@@ -97,5 +97,5 @@ pub fn primary_button(id: impl Into<SharedString>, label: &'static str, enabled:
 
 /// A thin vertical line between groups.
 pub fn separator(theme: Theme) -> Div {
-    div().flex_none().w(px(1.)).h(px(18.)).mx(px(3.)).bg(theme.separator)
+    div().flex_none().w(px(1.)).h(px(18.)).mx(px(2.)).bg(theme.separator)
 }

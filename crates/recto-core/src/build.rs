@@ -107,6 +107,28 @@ impl Document {
                 field.value = value.clone();
             }
         }
+        // Fields created in Recto; radio buttons of one group make one field.
+        for op in self.ops() {
+            let Op::AddField { page, rect, name, field } = op else { continue };
+            let (field_name, kind, on_state) = match field {
+                form::NewField::Text { .. } => (name.clone(), form::FieldKind::Text, None),
+                form::NewField::CheckBox => (name.clone(), form::FieldKind::CheckBox, Some("Yes".to_owned())),
+                form::NewField::Radio { group, value } => (group.clone(), form::FieldKind::Radio, Some(value.clone())),
+                form::NewField::Choice { options } => (name.clone(), form::FieldKind::Choice { options: options.clone(), editable: false }, None),
+                form::NewField::Signature => (name.clone(), form::FieldKind::Other, None),
+            };
+            let widget = form::Widget { page: *page, rect: *rect, on_state };
+            match fields.iter_mut().find(|existing| existing.name == field_name && existing.kind == form::FieldKind::Radio && kind == form::FieldKind::Radio) {
+                Some(existing) => existing.widgets.push(widget),
+                None => fields.push(form::FormField {
+                    value: filled.get(&field_name).cloned().unwrap_or_default(),
+                    name: field_name,
+                    kind,
+                    read_only: false,
+                    widgets: vec![widget],
+                }),
+            }
+        }
         Ok(fields)
     }
 
@@ -269,6 +291,15 @@ impl Document {
                 .collect();
             if let (false, Some(&id)) = (layers.is_empty(), objects.get(&page.id)) {
                 textlayer::apply(&mut base, id, &layers)?;
+            }
+        }
+        // Fields created in Recto, before values are filled in.
+        for op in self.ops() {
+            if let Op::AddField { page, rect, name, field } = op
+                && pages.iter().any(|state| state.id == *page)
+                && let Some(&id) = objects.get(page)
+            {
+                form::add(&mut base, id, *rect, name, field)?;
             }
         }
         form::fill(&mut base, &self.filled_values());

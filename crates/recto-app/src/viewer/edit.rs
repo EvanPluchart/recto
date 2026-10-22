@@ -42,6 +42,10 @@ pub enum EditSpec {
     EditText { page: usize, old: String, new: String },
     /// A typed signature in style `style` and ink `ink`, its top-left at `at` (displayed points).
     Sign { page: usize, at: Point, style: usize, ink: usize, name: String },
+    /// A form field of `kind` (text, multiline, check, radio, list, signature) named `name` over
+    /// the displayed area; radio buttons take `name` as group and value; lists take options
+    /// after the name, separated by `;`.
+    AddField { page: usize, area: PageRect, kind: String, name: String },
     /// The document title.
     Title(String),
 }
@@ -71,6 +75,12 @@ pub fn parse_edits(spec: &str) -> Result<Vec<EditSpec>, String> {
                     ..Stamp::page_numbers()
                 })),
                 "title" => Ok(EditSpec::Title(value.to_owned())),
+                "field" => {
+                    let fields: Vec<&str> = value.splitn(7, ':').collect();
+                    let [page, x, y, w, h, kind, name] = fields[..] else { return Err(format!("expected field:P:X:Y:W:H:KIND:NAME, got {part}")) };
+                    let area = PageRect { x: coordinate(x)?, y: coordinate(y)?, width: coordinate(w)?, height: coordinate(h)? };
+                    Ok(EditSpec::AddField { page: number(page)?, area, kind: kind.to_owned(), name: name.to_owned() })
+                }
                 "stamp" => {
                     let mut fields = value.splitn(4, ':');
                     let (page, x, y, text) = (fields.next(), fields.next(), fields.next(), fields.next());
@@ -321,6 +331,23 @@ impl Viewer {
                     let kind = Kind::Shape { rect: page.rect_to_user(area), outline: Arc::new(outline), upright: page.rotate };
                     let annotation = Annotation { kind, color: crate::signatures::INKS[ink], width: 1.0 };
                     document.apply(Op::AddAnnotation { page: state.id, annotation });
+                }
+                EditSpec::AddField { page: n, area, ref kind, ref name } => {
+                    use recto_core::form::NewField;
+                    let pages = document.pages();
+                    let (Some(state), Ok(geometry)) = (n.checked_sub(1).and_then(|i| pages.get(i)), document.geometry_of(&pages)) else { continue };
+                    let (name, options) = name.split_once(';').map_or((name.clone(), Vec::new()), |(name, rest)| {
+                        (name.to_owned(), rest.split(';').map(str::to_owned).collect())
+                    });
+                    let field = match kind.as_str() {
+                        "multiline" => NewField::Text { multiline: true },
+                        "check" => NewField::CheckBox,
+                        "radio" => NewField::Radio { group: name.clone(), value: options.first().cloned().unwrap_or_else(|| "1".into()) },
+                        "list" => NewField::Choice { options },
+                        "signature" => NewField::Signature,
+                        _ => NewField::Text { multiline: false },
+                    };
+                    document.apply(Op::AddField { page: state.id, rect: geometry[n - 1].rect_to_user(area), name, field });
                 }
                 EditSpec::Stamp(ref stamp) => document.apply(Op::AddStamp(stamp.clone())),
                 EditSpec::Title(ref title) => {

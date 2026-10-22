@@ -84,6 +84,60 @@ pub struct Outline {
     pub commands: Vec<PathCommand>,
 }
 
+
+/// Marks placed on forms by hand.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Symbol {
+    Check,
+    Cross,
+    Dot,
+}
+
+impl Outline {
+    /// A form mark, filling its unit box.
+    pub fn symbol(symbol: Symbol) -> Outline {
+        let polygon = |points: &[(f32, f32)]| {
+            let mut commands: Vec<PathCommand> = points
+                .iter()
+                .enumerate()
+                .map(|(n, &(x, y))| if n == 0 { PathCommand::Move(Point { x, y }) } else { PathCommand::Line(Point { x, y }) })
+                .collect();
+            commands.push(PathCommand::Close);
+            commands
+        };
+        let commands = match symbol {
+            Symbol::Check => polygon(&[(0.0, 0.55), (0.15, 0.7), (0.38, 0.42), (0.85, 1.0), (1.0, 0.86), (0.38, 0.1)]),
+            Symbol::Cross => polygon(&[
+                (0.0, 0.15),
+                (0.35, 0.5),
+                (0.0, 0.85),
+                (0.15, 1.0),
+                (0.5, 0.65),
+                (0.85, 1.0),
+                (1.0, 0.85),
+                (0.65, 0.5),
+                (1.0, 0.15),
+                (0.85, 0.0),
+                (0.5, 0.35),
+                (0.15, 0.0),
+            ]),
+            Symbol::Dot => {
+                // Four Bézier arcs.
+                let k = 0.5 * 0.5523;
+                let p = |x: f32, y: f32| Point { x, y };
+                vec![
+                    PathCommand::Move(p(1.0, 0.5)),
+                    PathCommand::Cubic(p(1.0, 0.5 + k), p(0.5 + k, 1.0), p(0.5, 1.0)),
+                    PathCommand::Cubic(p(0.5 - k, 1.0), p(0.0, 0.5 + k), p(0.0, 0.5)),
+                    PathCommand::Cubic(p(0.0, 0.5 - k), p(0.5 - k, 0.0), p(0.5, 0.0)),
+                    PathCommand::Cubic(p(0.5 + k, 0.0), p(1.0, 0.5 - k), p(1.0, 0.5)),
+                    PathCommand::Close,
+                ]
+            }
+        };
+        Outline { aspect: 1.0, commands }
+    }
+}
 impl Outline {
     /// `text` set on one line in the font `font` (TrueType or OpenType bytes), as outlines.
     /// `None` if the font cannot be read or has none of the characters.

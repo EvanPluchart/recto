@@ -59,6 +59,7 @@ icons![
     "search",
     "signature",
     "square",
+    "square-check",
     "stamp",
     "strikethrough",
     "sun",

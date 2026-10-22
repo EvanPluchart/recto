@@ -2,6 +2,7 @@
 
 use crate::PageId;
 use crate::annot::Annotation;
+use crate::form::NewField;
 use crate::geom::{Point, Rect};
 use crate::meta::Metadata;
 use crate::stamp::Stamp;
@@ -42,6 +43,8 @@ pub enum Op {
     UpdateAnnotation { target: u64, annotation: Annotation },
     /// Removes the annotation added by the op with id `target`.
     DeleteAnnotation { target: u64 },
+    /// A new form field `name` with one widget over `rect` (user space) on `page`.
+    AddField { page: PageId, rect: Rect, name: String, field: NewField },
     /// Sets the value of the form field named `name` (see `form::FormField::value`).
     FillField { name: String, value: String },
     /// Removes what lies under `area` on `page` (see `redact.rs`) and paints it black.
@@ -99,6 +102,7 @@ pub fn replay(initial: &[PageId], ops: &[Op]) -> Vec<PageState> {
             }
             Op::AddAnnotation { .. }
             | Op::FillField { .. }
+            | Op::AddField { .. }
             | Op::UpdateAnnotation { .. }
             | Op::DeleteAnnotation { .. }
             | Op::Redact { .. }

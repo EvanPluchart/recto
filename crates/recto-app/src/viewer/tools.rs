@@ -26,6 +26,10 @@ pub enum ToolKind {
     Stamp,
     /// A link over an area drawn on a page.
     Link,
+    /// A form field over an area drawn on a page.
+    Field,
+    /// A mark where the page was clicked.
+    Symbol,
 }
 
 /// Toggles of the forms, by meaning.
@@ -81,6 +85,8 @@ enum Field {
     OpenPassword,
     OwnerPassword,
     Destination,
+    Name,
+    Options,
 }
 
 impl Field {
@@ -97,6 +103,8 @@ impl Field {
             Field::OpenPassword => "Password to open",
             Field::OwnerPassword => "Password to change permissions",
             Field::Destination => "Destination",
+            Field::Name => "Field name",
+            Field::Options => "Choices (comma-separated)",
         }
     }
 }
@@ -123,6 +131,8 @@ pub struct ToolDialog {
     at: Option<(usize, recto_core::geom::Point)>,
     /// For links: the displayed page and the area, in user space.
     area: Option<(usize, recto_core::geom::Rect)>,
+    /// For fields: the index in `FIELD_TYPES`.
+    field_type: usize,
     error: Option<SharedString>,
 }
 
@@ -177,6 +187,8 @@ impl Viewer {
             ),
             ToolKind::Stamp => (vec![(Field::Text, t(STAMPS[0]).to_owned())], Vec::new(), Position::Center),
             ToolKind::Link => (vec![(Field::Destination, String::new())], Vec::new(), Position::Center),
+            ToolKind::Field => (vec![(Field::Name, String::new()), (Field::Options, String::new())], Vec::new(), Position::Center),
+            ToolKind::Symbol => (Vec::new(), Vec::new(), Position::Center),
             ToolKind::Export => {
                 let mut flags = vec![(Flag::Compress, true), (Flag::Grayscale, false)];
                 if has_fields {
@@ -217,7 +229,7 @@ impl Viewer {
         if let Some((_, first)) = fields.iter().find(|(field, _)| !matches!(field, Field::OpenPassword | Field::OwnerPassword)) {
             first.update(cx, |input, cx| input.focus_all(window, cx));
         }
-        self.tool_dialog = Some(ToolDialog { kind, fields, flags, position, at: None, area: None, error: None });
+        self.tool_dialog = Some(ToolDialog { kind, fields, flags, position, at: None, area: None, field_type: 0, error: None });
         cx.notify();
     }
 
@@ -247,6 +259,12 @@ impl Viewer {
                 Ok(())
             }
             ToolKind::Export => self.export_options(dialog, cx).map(|options| self.export(options, window, cx)),
+            ToolKind::Field => {
+                let (name, options) = (dialog.text(Field::Name, cx), dialog.text(Field::Options, cx));
+                let (area, kind) = (dialog.area, dialog.field_type);
+                self.place_field(name, options, kind, area, window, cx)
+            }
+            ToolKind::Symbol => Ok(()),
             ToolKind::Link => {
                 let (target, area) = (dialog.text(Field::Destination, cx), dialog.area);
                 self.place_link(target, area, window, cx)
@@ -328,6 +346,8 @@ impl Viewer {
             ToolKind::Export => ("Export", "Saves a copy with these options; the open document does not change."),
             ToolKind::Stamp => ("Stamp", "Click a stamp, or type your own text."),
             ToolKind::Link => ("Link", "A web address (https://…) or a page number."),
+            ToolKind::Field => ("Form field", "Readers of the file can fill it in."),
+            ToolKind::Symbol => ("Mark", "Click the mark to place."),
         };
         let chip = |id: SharedString, label: &'static str, active: bool| {
             div()
@@ -371,6 +391,36 @@ impl Viewer {
                     .child(div().w(px(150.)).flex_none().text_color(theme.muted).child(t(field.label())))
                     .child(div().flex_1().child(input.clone())),
             );
+        }
+        if dialog.kind == ToolKind::Field {
+            let mut types = div().flex().flex_wrap().gap(px(6.));
+            for (n, label) in FIELD_TYPES.into_iter().enumerate() {
+                types = types.child(chip(format!("field-type-{n}").into(), label, dialog.field_type == n).on_click(cx.listener(
+                    move |viewer, _, _, cx| {
+                        if let Some(dialog) = &mut viewer.tool_dialog {
+                            dialog.field_type = n;
+                        }
+                        cx.notify();
+                    },
+                )));
+            }
+            card = card.child(types);
+        }
+        if dialog.kind == ToolKind::Symbol {
+            let mut marks = div().flex().gap(px(8.));
+            for (n, (symbol, label)) in SYMBOLS.into_iter().enumerate() {
+                marks = marks.child(
+                    chip(format!("symbol-{n}").into(), label, false)
+                        .w(px(56.))
+                        .h(px(40.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_xl()
+                        .on_click(cx.listener(move |viewer, _, window, cx| viewer.place_symbol(symbol, window, cx))),
+                );
+            }
+            card = card.child(marks);
         }
         if dialog.kind == ToolKind::Stamp {
             let mut presets = div().flex().flex_wrap().gap(px(6.));
@@ -555,6 +605,89 @@ impl Viewer {
         let annotation = recto_core::annot::Annotation { kind: recto_core::annot::Kind::Link { rect, target }, color: self.inspector.color, width: 1.0 };
         self.edit(Op::AddAnnotation { page: id, annotation }, window, cx);
         Ok(())
+    }
+}
+
+/// Kinds of fields the Form tool creates, with their labels.
+const FIELD_TYPES: [&str; 6] = ["Text", "Text, several lines", "Check box", "Radio button", "Drop-down list", "Signature box"];
+const SYMBOLS: [(recto_core::annot::Symbol, &str); 3] =
+    [(recto_core::annot::Symbol::Check, "✓"), (recto_core::annot::Symbol::Cross, "✕"), (recto_core::annot::Symbol::Dot, "•")];
+
+/// A value for a radio button given no choice: from where it sits, so buttons differ.
+fn radio_value(name: &str, rect: recto_core::geom::Rect) -> String {
+    format!("{name}-{}-{}", rect.origin.x.round(), rect.origin.y.round())
+}
+
+impl Viewer {
+    /// Opens the field form for `area` (user space) of displayed page `page`.
+    pub(super) fn open_field(&mut self, page: usize, area: recto_core::geom::Rect, window: &mut Window, cx: &mut Context<Self>) {
+        let existing = self.open().and_then(|open| open.document.form_fields().ok()).map_or(0, |fields| fields.len());
+        self.open_tool(ToolKind::Field, window, cx);
+        if let Some(dialog) = &mut self.tool_dialog {
+            dialog.area = Some((page, area));
+            // A name nobody uses yet; the reader can change it.
+            let name = format!("{} {}", t("Field"), existing + 1);
+            if let Some((_, input)) = dialog.fields.first() {
+                input.update(cx, |input, cx| input.set_text(name, cx));
+            }
+        }
+    }
+
+    /// Opens the mark chooser for displayed point `at` of page `page`.
+    pub(super) fn open_symbol(&mut self, page: usize, at: recto_core::geom::Point, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_tool(ToolKind::Symbol, window, cx);
+        if let Some(dialog) = &mut self.tool_dialog {
+            dialog.at = Some((page, at));
+        }
+    }
+
+    fn place_field(
+        &mut self,
+        name: String,
+        options: String,
+        kind: usize,
+        area: Option<(usize, recto_core::geom::Rect)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        use recto_core::form::NewField;
+        let Some((page, rect)) = area else { return Ok(()) };
+        let name = name.trim().to_owned();
+        if name.is_empty() {
+            return Err(t("Enter a name for the field.").to_owned());
+        }
+        let options: Vec<String> = options.split(',').map(|option| option.trim().to_owned()).filter(|option| !option.is_empty()).collect();
+        let field = match kind {
+            0 => NewField::Text { multiline: false },
+            1 => NewField::Text { multiline: true },
+            2 => NewField::CheckBox,
+            // Buttons with the same name form one group; the first choice is this button's value.
+            3 => NewField::Radio { group: name.clone(), value: options.first().cloned().unwrap_or_else(|| radio_value(&name, rect)) },
+            4 => {
+                if options.is_empty() {
+                    return Err(t("Enter the choices, separated by commas.").to_owned());
+                }
+                NewField::Choice { options }
+            }
+            _ => NewField::Signature,
+        };
+        let Some(id) = self.open().and_then(|open| open.page_states.get(page)).map(|state| state.id) else { return Ok(()) };
+        self.edit(Op::AddField { page: id, rect, name, field }, window, cx);
+        Ok(())
+    }
+
+    fn place_symbol(&mut self, symbol: recto_core::annot::Symbol, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((page, at)) = self.tool_dialog.as_ref().and_then(|dialog| dialog.at) else { return };
+        self.tool_dialog = None;
+        window.focus(&self.focus);
+        let Some(geometry) = self.open().and_then(|open| open.geometry.get(page).copied()) else { return };
+        let Some(id) = self.open().and_then(|open| open.page_states.get(page)).map(|state| state.id) else { return };
+        // Centred on the click, 12 points.
+        let area = recto_core::geom::PageRect { x: at.x - 6.0, y: at.y - 6.0, width: 12.0, height: 12.0 };
+        let outline = std::sync::Arc::new(recto_core::annot::Outline::symbol(symbol));
+        let kind = recto_core::annot::Kind::Shape { rect: geometry.rect_to_user(area), outline, upright: geometry.rotate };
+        let annotation = recto_core::annot::Annotation { kind, color: self.inspector.color, width: 1.0 };
+        self.edit(Op::AddAnnotation { page: id, annotation }, window, cx);
     }
 }
 

@@ -225,6 +225,214 @@ fn escaped(text: &str) -> Vec<u8> {
     bytes
 }
 
+
+/// A form field created in Recto (`Op::AddField`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum NewField {
+    Text { multiline: bool },
+    CheckBox,
+    /// One button of the radio group `group`; `value` is what choosing it sets.
+    Radio { group: String, value: String },
+    /// A drop-down list.
+    Choice { options: Vec<String> },
+    /// An empty signature box.
+    Signature,
+}
+
+const MULTILINE: i64 = 1 << 12;
+const NO_TOGGLE_TO_OFF: i64 = 1 << 14;
+
+/// A form XObject of `width` × `height` drawing `content`.
+fn appearance(document: &mut lopdf::Document, width: f32, height: f32, content: String) -> ObjectId {
+    let mut form = Dictionary::new();
+    form.set("Type", Object::Name(b"XObject".to_vec()));
+    form.set("Subtype", Object::Name(b"Form".to_vec()));
+    form.set("BBox", Object::Array(vec![0.into(), 0.into(), width.into(), height.into()]));
+    document.add_object(Stream::new(form, content.into_bytes()))
+}
+
+/// A thin grey frame inside a `width` × `height` box.
+fn frame(width: f32, height: f32) -> String {
+    format!("0.6 G 0.75 w 0.375 0.375 {} {} re S ", width - 0.75, height - 0.75)
+}
+
+/// A dot of radius `r` centred on (`c`, `c`), as four Bézier arcs, filled.
+fn dot(c: f32, r: f32) -> String {
+    let k = r * 0.5523;
+    let (x0, x1, y0, y1) = (c - r, c + r, c - r, c + r);
+    format!(
+        "0 g {x1} {c} m {x1} {} {} {y1} {c} {y1} c {} {y1} {x0} {} {x0} {c} c {x0} {} {} {y0} {c} {y0} c {} {y0} {x1} {} {x1} {c} c f",
+        c + k,
+        c + k,
+        c - k,
+        c + k,
+        c - k,
+        c - k,
+        c + k,
+        c - k,
+    )
+}
+
+/// The form of `document`, created when missing, with Helvetica as `/Helv` in its resources.
+fn acro_form(document: &mut lopdf::Document) -> lopdf::Result<()> {
+    if document.catalog()?.get(b"AcroForm").is_ok() {
+        return Ok(());
+    }
+    let mut font = Dictionary::new();
+    font.set("Type", Object::Name(b"Font".to_vec()));
+    font.set("Subtype", Object::Name(b"Type1".to_vec()));
+    font.set("BaseFont", Object::Name(b"Helvetica".to_vec()));
+    font.set("Encoding", Object::Name(b"WinAnsiEncoding".to_vec()));
+    let font = document.add_object(font);
+    let mut fonts = Dictionary::new();
+    fonts.set("Helv", Object::Reference(font));
+    let mut resources = Dictionary::new();
+    resources.set("Font", Object::Dictionary(fonts));
+    let mut form = Dictionary::new();
+    form.set("Fields", Object::Array(Vec::new()));
+    form.set("DR", Object::Dictionary(resources));
+    form.set("DA", Object::string_literal("/Helv 0 Tf 0 g"));
+    let form = document.add_object(form);
+    document.catalog_mut()?.set("AcroForm", Object::Reference(form));
+    Ok(())
+}
+
+/// Adds `child` to the form's top-level `/Fields`.
+fn add_to_fields(document: &mut lopdf::Document, child: ObjectId) -> lopdf::Result<()> {
+    let form = document.catalog()?.get(b"AcroForm")?.clone();
+    let form = match form {
+        Object::Reference(id) => document.get_dictionary_mut(id)?,
+        _ => match document.catalog_mut()?.get_mut(b"AcroForm")? {
+            Object::Dictionary(dictionary) => dictionary,
+            _ => return Ok(()),
+        },
+    };
+    let mut fields = match form.get(b"Fields") {
+        Ok(Object::Array(items)) => items.clone(),
+        _ => Vec::new(),
+    };
+    fields.push(Object::Reference(child));
+    form.set("Fields", Object::Array(fields));
+    Ok(())
+}
+
+/// Creates the field `name` with one widget over `rect` (user space) on `page`.
+pub fn add(document: &mut lopdf::Document, page: ObjectId, rect: Rect, name: &str, field: &NewField) -> lopdf::Result<()> {
+    acro_form(document)?;
+    let (width, height) = (rect.width.max(4.0), rect.height.max(4.0));
+    let mut widget = Dictionary::new();
+    widget.set("Type", Object::Name(b"Annot".to_vec()));
+    widget.set("Subtype", Object::Name(b"Widget".to_vec()));
+    widget.set(
+        "Rect",
+        Object::Array(vec![rect.origin.x.into(), rect.origin.y.into(), (rect.origin.x + width).into(), (rect.origin.y + height).into()]),
+    );
+    widget.set("P", Object::Reference(page));
+    widget.set("F", Object::Integer(4));
+    let mut colors = Dictionary::new();
+    colors.set("BC", Object::Array(vec![0.6.into(), 0.6.into(), 0.6.into()]));
+    widget.set("MK", Object::Dictionary(colors));
+    let empty = frame(width, height);
+    let mut parent: Option<ObjectId> = None;
+    match field {
+        NewField::Text { .. } | NewField::Choice { .. } | NewField::Signature => {
+            match field {
+                NewField::Text { multiline } => {
+                    widget.set("FT", Object::Name(b"Tx".to_vec()));
+                    widget.set("DA", Object::string_literal(if *multiline { "/Helv 10 Tf 0 g" } else { "/Helv 0 Tf 0 g" }));
+                    if *multiline {
+                        widget.set("Ff", Object::Integer(MULTILINE));
+                    }
+                }
+                NewField::Choice { options } => {
+                    widget.set("FT", Object::Name(b"Ch".to_vec()));
+                    widget.set("Ff", Object::Integer(COMBO));
+                    widget.set("Opt", Object::Array(options.iter().map(|option| text_string(option)).collect()));
+                    widget.set("DA", Object::string_literal("/Helv 0 Tf 0 g"));
+                }
+                _ => widget.set("FT", Object::Name(b"Sig".to_vec())),
+            }
+            let normal = appearance(document, width, height, empty);
+            let mut states = Dictionary::new();
+            states.set("N", Object::Reference(normal));
+            widget.set("AP", Object::Dictionary(states));
+        }
+        NewField::CheckBox | NewField::Radio { .. } => {
+            let size = width.min(height);
+            let on_mark = match field {
+                // A check mark, drawn as a thick polyline.
+                NewField::CheckBox => format!(
+                    "0 g {} w 1 J 1 j {} {} m {} {} l {} {} l S",
+                    (size * 0.12).max(1.0),
+                    0.22 * size,
+                    0.5 * size,
+                    0.42 * size,
+                    0.28 * size,
+                    0.78 * size,
+                    0.74 * size,
+                ),
+                _ => dot(size / 2.0, size * 0.22),
+            };
+            let on_value = match field {
+                NewField::Radio { value, .. } => value.clone(),
+                _ => "Yes".to_owned(),
+            };
+            let on = appearance(document, width, height, format!("{empty}{on_mark}"));
+            let off = appearance(document, width, height, empty);
+            let mut normal = Dictionary::new();
+            normal.set(on_value.as_bytes().to_vec(), Object::Reference(on));
+            normal.set("Off", Object::Reference(off));
+            let mut states = Dictionary::new();
+            states.set("N", Object::Dictionary(normal));
+            widget.set("AP", Object::Dictionary(states));
+            widget.set("AS", Object::Name(b"Off".to_vec()));
+            if let NewField::Radio { group, .. } = field {
+                // Buttons of one group share a parent field holding the value.
+                let pages: HashMap<ObjectId, u32> = document.get_pages().into_iter().map(|(number, id)| (id, number - 1)).collect();
+                let existing = walk(document, &pages, 0)
+                    .into_iter()
+                    .find(|found| found.field.name == *group && found.field.kind == FieldKind::Radio)
+                    .map(|found| found.id);
+                let id = match existing {
+                    Some(id) => id,
+                    None => {
+                        let mut node = Dictionary::new();
+                        node.set("FT", Object::Name(b"Btn".to_vec()));
+                        node.set("T", text_string(group));
+                        node.set("Ff", Object::Integer(RADIO | NO_TOGGLE_TO_OFF));
+                        node.set("V", Object::Name(b"Off".to_vec()));
+                        node.set("Kids", Object::Array(Vec::new()));
+                        let id = document.add_object(node);
+                        add_to_fields(document, id)?;
+                        id
+                    }
+                };
+                widget.set("Parent", Object::Reference(id));
+                parent = Some(id);
+            } else {
+                widget.set("FT", Object::Name(b"Btn".to_vec()));
+                widget.set("V", Object::Name(b"Off".to_vec()));
+            }
+        }
+    }
+    if parent.is_none() {
+        widget.set("T", text_string(name));
+    }
+    let widget = document.add_object(widget);
+    match parent {
+        Some(parent) => {
+            let node = document.get_dictionary_mut(parent)?;
+            let mut kids = match node.get(b"Kids") {
+                Ok(Object::Array(items)) => items.clone(),
+                _ => Vec::new(),
+            };
+            kids.push(Object::Reference(widget));
+            node.set("Kids", Object::Array(kids));
+        }
+        None => add_to_fields(document, widget)?,
+    }
+    crate::annot::attach(document, page, widget)
+}
 /// Writes `values` (field name → value) into `document`: `/V`, `/AS`, and generated appearances
 /// for text and choice widgets.
 pub fn fill(document: &mut lopdf::Document, values: &HashMap<String, String>) {
@@ -412,6 +620,35 @@ mod tests {
 
     fn fill(document: &mut Document, name: &str, value: &str) {
         document.apply(Op::FillField { name: name.into(), value: value.into() });
+    }
+
+    #[test]
+    fn creates_fields_that_fill_and_read_back() {
+        let mut document = Document::open(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/sample.pdf")).unwrap();
+        let page = PageId { source: 0, index: 0 };
+        let rect = |x: f32, y: f32, w: f32, h: f32| Rect { origin: Point { x, y }, width: w, height: h };
+        let add = |document: &mut Document, area, name: &str, field| document.apply(Op::AddField { page, rect: area, name: name.into(), field });
+        add(&mut document, rect(50.0, 700.0, 200.0, 20.0), "name", NewField::Text { multiline: false });
+        add(&mut document, rect(50.0, 660.0, 14.0, 14.0), "agree", NewField::CheckBox);
+        add(&mut document, rect(50.0, 620.0, 14.0, 14.0), "", NewField::Radio { group: "size".into(), value: "S".into() });
+        add(&mut document, rect(80.0, 620.0, 14.0, 14.0), "", NewField::Radio { group: "size".into(), value: "L".into() });
+        add(&mut document, rect(50.0, 580.0, 120.0, 20.0), "color", NewField::Choice { options: vec!["Red".into(), "Blue".into()] });
+        add(&mut document, rect(50.0, 500.0, 200.0, 60.0), "signature", NewField::Signature);
+        // Known before building, with their widgets.
+        let known = document.form_fields().unwrap();
+        assert_eq!(known.iter().map(|field| field.name.as_str()).collect::<Vec<_>>(), ["name", "agree", "size", "color", "signature"]);
+        assert_eq!(known[2].widgets.len(), 2);
+        for (name, value) in [("name", "Ada"), ("agree", "Yes"), ("size", "L"), ("color", "Blue")] {
+            document.apply(Op::FillField { name: name.into(), value: value.into() });
+        }
+        let reopened = lopdf::Document::load_mem(&document.build().unwrap()).unwrap();
+        let fields = fields(&reopened, 0);
+        let value = |name: &str| fields.iter().find(|field| field.name == name).map(|field| field.value.clone());
+        assert_eq!(value("name").as_deref(), Some("Ada"));
+        assert_eq!(value("agree").as_deref(), Some("Yes"));
+        assert_eq!(value("size").as_deref(), Some("L"));
+        assert_eq!(value("color").as_deref(), Some("Blue"));
+        assert_eq!(fields.iter().find(|field| field.name == "signature").map(|field| field.kind.clone()), Some(FieldKind::Other));
     }
 
     #[test]

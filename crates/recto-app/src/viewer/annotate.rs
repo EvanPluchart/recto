@@ -38,6 +38,8 @@ pub enum Tool {
     Stamp,
     /// A link over a dragged area.
     Link,
+    /// Form fields over a dragged area; marks (✓ ✕ •) on a click.
+    Form,
     /// Removes what lies under a dragged area.
     Redact,
     /// Erases what lies under a dragged area (white).
@@ -51,7 +53,7 @@ pub enum Tool {
 }
 
 impl Tool {
-    pub const ALL: [Tool; 20] = [
+    pub const ALL: [Tool; 21] = [
         Tool::Select,
         Tool::Text,
         Tool::Highlight,
@@ -67,6 +69,7 @@ impl Tool {
         Tool::Signature,
         Tool::Stamp,
         Tool::Link,
+        Tool::Form,
         Tool::Redact,
         Tool::Erase,
         Tool::DeleteImage,
@@ -92,6 +95,7 @@ impl Tool {
             Tool::Signature => "signature",
             Tool::Stamp => "stamp",
             Tool::Link => "link",
+            Tool::Form => "form",
             Tool::Redact => "redact",
             Tool::Erase => "erase",
             Tool::DeleteImage => "deleteimage",
@@ -121,6 +125,7 @@ impl Tool {
             Tool::Signature => "Sign",
             Tool::Stamp => "Stamp",
             Tool::Link => "Link",
+            Tool::Form => "Form",
             Tool::Redact => "Redact",
             Tool::Erase => "Erase",
             Tool::DeleteImage => "Delete an image",
@@ -307,6 +312,9 @@ impl Viewer {
         let (Some(&first), Some(&last)) = (points.first(), points.last()) else { return };
         let area = span(first, last);
         let tiny = area.width < 3.0 && area.height < 3.0;
+        if self.tool == Tool::Form {
+            return if tiny { self.open_symbol(page, first, window, cx) } else { self.open_field(page, geometry.rect_to_user(area), window, cx) };
+        }
         if !tiny && self.tool == Tool::Link {
             let area = geometry.rect_to_user(area);
             return self.open_link(page, area, window, cx);

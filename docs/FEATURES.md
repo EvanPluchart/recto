@@ -45,4 +45,4 @@ Legend: milestone where it lands, or `later` / `no`.
 | Annotate | Freehand highlighter, hide annotations | done: Highlighter tool (translucent, multiplied ink), a toggle in the app bar draws pages without annotations and form fields |
 | Annotate | Stamps placed by hand ("DRAFT", "PAID") | done: Stamp tool, eight ready-made stamps or free text, bold capitals in a rounded frame |
 | Links | Add and edit links | done: Link tool (area to a web address or a page, which the link follows when pages move), links of the file and of Recto followed with the Select tool (web links after asking); links of the file cannot be edited |
-| Forms | Symbols (✕ ✓ •), create fields, detect fields, tab order | missing |
+| Forms | Symbols (✕ ✓ •), create fields, detect fields, tab order | done: Form tool (drag: text, multi-line text, check box, radio button groups, drop-down list, signature box; click: ✓ ✕ • marks as vector shapes); not done: detecting fields, tab order |
