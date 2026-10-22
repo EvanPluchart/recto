@@ -14,9 +14,12 @@
 //!   covered by the black box;
 //! * annotations and form fields that meet an area are deleted, with their values;
 //! * alternate text of marked content (`/ActualText`, `/Alt`) on the page is dropped, as are the
-//!   page thumbnail and the document's structure tree, which may repeat the text.
+//!   page thumbnail and the document's structure tree, which may repeat the text;
+//! * an XFA form's datasets are dropped, image copies lose their `/Alternates` and `/OPI`.
 //!
-//! * an XFA form's datasets are dropped, image copies lose their `/Alternates` and `/OPI`.//!//! Not covered: the inside of tiling patterns, and document-level text (`/Info`, XMP metadata,//! bookmarks, embedded files, page labels), which the Metadata tool can clear.//!
+//! Not covered: the inside of tiling patterns, and document-level text (`/Info`, XMP metadata,
+//! bookmarks, embedded files, page labels), which the Metadata tool can clear.
+//!
 //! Shared objects are never modified: the page gets new content, resources and copies.
 
 use std::collections::{HashMap, HashSet};
