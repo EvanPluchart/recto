@@ -93,7 +93,7 @@ impl Viewer {
         let cursor = snapshot.cursor();
         let target = path.clone();
         let task = cx.background_executor().spawn(async move {
-            let bytes = snapshot.build_with(BuildOptions { flatten_forms: flatten }).map_err(|error| error.to_string())?;
+            let bytes = snapshot.build_with(&BuildOptions { flatten_forms: flatten, ..BuildOptions::default() }).map_err(|error| error.to_string())?;
             write_atomic(&target, &bytes).map_err(|error| error.to_string())
         });
         cx.spawn_in(window, async move |this, cx| {

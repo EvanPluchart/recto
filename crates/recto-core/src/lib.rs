@@ -3,15 +3,18 @@
 
 pub mod annot;
 pub mod build;
+pub mod compress;
 pub mod content;
 pub mod document;
 pub mod form;
 pub mod geom;
+pub mod gray;
 pub mod layout;
 pub mod meta;
 pub mod op;
 pub mod redact;
 pub mod save;
+pub mod security;
 pub mod split;
 pub mod stamp;
 pub mod text;

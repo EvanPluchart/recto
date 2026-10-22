@@ -105,7 +105,7 @@ fn annotations_render_where_they_were_placed() {
         form.apply(Op::FillField { name: name.into(), value: value.into() });
     }
     for flatten in [false, true] {
-        let bytes = form.build_with(recto_core::BuildOptions { flatten_forms: flatten }).unwrap();
+        let bytes = form.build_with(&recto_core::BuildOptions { flatten_forms: flatten, ..Default::default() }).unwrap();
         let filled = render(&thread, bytes, 0);
         assert!(dark_pixels(&filled, 152, 120, 398, 140) > 50, "name value shown (flatten {flatten})");
         // Check box at user (150..166, 650..666): its mark is at display (153..163, 179..189).

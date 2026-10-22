@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use lopdf::{Dictionary, Object};
+use lopdf::{Dictionary, Object, Stream};
 
 use crate::geom::{Point, Rect};
 
@@ -310,6 +310,105 @@ fn cid_widths(document: &lopdf::Document, items: &[Object]) -> HashMap<u32, f32>
         }
     }
     widths
+}
+
+/// Decoded images larger than this are removed instead of copied.
+const MAX_IMAGE_BYTES: usize = 256 << 20;
+
+pub(crate) struct Pixels {
+    pub width: usize,
+    pub height: usize,
+    pub components: usize,
+    pub data: Vec<u8>,
+}
+
+
+/// `stream` with its data replaced by decoded 8-bit pixels, Flate-compressed.
+pub(crate) fn raw_copy(stream: &Stream, pixels: Pixels) -> Stream {
+    let mut dict = stream.dict.clone();
+    for key in [b"Filter".as_slice(), b"DecodeParms", b"Length"] {
+        dict.remove(key);
+    }
+    dict.set("BitsPerComponent", 8);
+    let mut copy = Stream::new(dict, pixels.data);
+    let _ = copy.compress();
+    copy
+}
+
+/// Number of color components of a color space this module can edit pixel by pixel.
+pub(crate) fn components(document: &lopdf::Document, space: &Object) -> Option<usize> {
+    match resolve(document, space) {
+        Object::Name(name) => match name.as_slice() {
+            b"DeviceGray" | b"G" | b"CalGray" => Some(1),
+            b"DeviceRGB" | b"RGB" | b"CalRGB" => Some(3),
+            b"DeviceCMYK" | b"CMYK" => Some(4),
+            _ => None,
+        },
+        Object::Array(items) => {
+            let family = items.first().and_then(|value| value.as_name().ok())?;
+            match family {
+                b"ICCBased" => {
+                    let profile = resolve(document, items.get(1)?).as_stream().ok()?;
+                    profile.dict.get(b"N").ok()?.as_i64().ok().map(|n| n as usize)
+                }
+                b"CalGray" => Some(1),
+                b"CalRGB" | b"Lab" => Some(3),
+                // One index per pixel.
+                b"Indexed" | b"I" => Some(1),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// The pixels of an 8-bit image, or `None` when its format is not handled here.
+pub(crate) fn decode_image(document: &lopdf::Document, image: &Stream) -> Option<Pixels> {
+    let dict = &image.dict;
+    let integer = |key: &[u8]| dict.get(key).ok().map(|value| resolve(document, value)).and_then(|value| value.as_i64().ok());
+    let (width, height) = (usize::try_from(integer(b"Width")?).ok()?, usize::try_from(integer(b"Height")?).ok()?);
+    if dict.get(b"ImageMask").ok().and_then(|value| value.as_bool().ok()) == Some(true) {
+        return None;
+    }
+    // Soft masks have no color space and are gray.
+    let components = match dict.get(b"ColorSpace") {
+        Ok(space) => components(document, space)?,
+        Err(_) if dict.get(b"Subtype").ok().and_then(|value| value.as_name().ok()) == Some(b"Image") => 1,
+        Err(_) => return None,
+    };
+    let size = width.checked_mul(height)?.checked_mul(components)?;
+    if size > MAX_IMAGE_BYTES {
+        return None;
+    }
+    let filters: Vec<Vec<u8>> = match dict.get(b"Filter").ok().map(|value| resolve(document, value)) {
+        None => Vec::new(),
+        Some(Object::Name(name)) => vec![name.clone()],
+        Some(Object::Array(names)) => names.iter().filter_map(|name| name.as_name().ok().map(<[u8]>::to_vec)).collect(),
+        Some(_) => return None,
+    };
+    let data = match filters.as_slice() {
+        [last] if last == b"DCTDecode" || last == b"DCT" => {
+            if components == 4 {
+                return None;
+            }
+            let decoded = image::load_from_memory_with_format(&image.content, image::ImageFormat::Jpeg).ok()?;
+            match components {
+                1 => decoded.into_luma8().into_raw(),
+                _ => decoded.into_rgb8().into_raw(),
+            }
+        }
+        _ => {
+            if integer(b"BitsPerComponent") != Some(8) {
+                return None;
+            }
+            let supported = |name: &Vec<u8>| matches!(name.as_slice(), b"FlateDecode" | b"Fl" | b"LZWDecode" | b"LZW" | b"ASCII85Decode" | b"ASCIIHexDecode" | b"RunLengthDecode");
+            if !filters.iter().all(supported) {
+                return None;
+            }
+            if filters.is_empty() { image.content.clone() } else { image.decompressed_content().ok()? }
+        }
+    };
+    (data.len() >= size).then(|| Pixels { width, height, components, data: data[..size].to_vec() })
 }
 
 #[cfg(test)]

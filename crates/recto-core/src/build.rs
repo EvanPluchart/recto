@@ -12,7 +12,8 @@ use std::collections::{BTreeSet, HashMap};
 use lopdf::{Dictionary, Object, ObjectId};
 
 use crate::PageId;
-use crate::{annot, form, redact, stamp};
+use crate::security::{Security, SecurityError};
+use crate::{annot, compress, form, gray, redact, stamp};
 use crate::geom::{PageGeometry, Point, Rect};
 use crate::document::{Document, Source};
 use crate::op::{Op, PageState};
@@ -27,15 +28,22 @@ pub enum BuildError {
     MissingPage(PageId),
     #[error("the document has no pages left")]
     NoPages,
+    #[error(transparent)]
+    Security(#[from] SecurityError),
     #[error("cannot write the PDF: {0}")]
     Write(std::io::Error),
 }
 
 /// How to build.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct BuildOptions {
     /// Draw form fields into the pages and remove the form (values can no longer be changed).
     pub flatten_forms: bool,
+    /// Colors and images turned to shades of gray.
+    pub grayscale: bool,
+    /// Images resampled and recompressed, objects packed into compressed streams.
+    pub compress: bool,
+    pub security: Security,
 }
 
 /// Page attributes a page can inherit from its ancestors in the page tree (PDF 32000, 7.7.3.4).
@@ -46,12 +54,12 @@ const MAX_TREE_DEPTH: usize = 64;
 impl Document {
     /// The current document as a PDF file. Without edits, the original bytes, untouched.
     pub fn build(&self) -> Result<Vec<u8>, BuildError> {
-        self.build_with(BuildOptions::default())
+        self.build_with(&BuildOptions::default())
     }
 
     /// `build`, with options (flattening the form).
-    pub fn build_with(&self, options: BuildOptions) -> Result<Vec<u8>, BuildError> {
-        if self.ops().is_empty() && !options.flatten_forms {
+    pub fn build_with(&self, options: &BuildOptions) -> Result<Vec<u8>, BuildError> {
+        if self.ops().is_empty() && *options == BuildOptions::default() {
             return Ok(self.bytes().to_vec());
         }
         self.build_pages_with(&self.pages(), options)
@@ -59,7 +67,7 @@ impl Document {
 
     /// A PDF holding exactly `pages`, in that order (used to extract and split).
     pub fn build_pages(&self, pages: &[PageState]) -> Result<Vec<u8>, BuildError> {
-        self.build_pages_with(pages, BuildOptions::default())
+        self.build_pages_with(pages, &BuildOptions::default())
     }
 
     /// The current form field values set by `FillField` ops, latest first wins.
@@ -86,7 +94,7 @@ impl Document {
         Ok(fields)
     }
 
-    fn build_pages_with(&self, pages: &[PageState], options: BuildOptions) -> Result<Vec<u8>, BuildError> {
+    fn build_pages_with(&self, pages: &[PageState], options: &BuildOptions) -> Result<Vec<u8>, BuildError> {
         if pages.is_empty() {
             return Err(BuildError::NoPages);
         }
@@ -205,13 +213,34 @@ impl Document {
         if options.flatten_forms {
             form::flatten(&mut base)?;
         }
+        if options.grayscale {
+            gray::convert(&mut base);
+        }
+        if options.compress {
+            compress::images(&mut base);
+        }
         base.prune_objects();
 
+        let encryption = match &options.security {
+            Security::Keep => encryption,
+            Security::Remove => None,
+            Security::Protect(protection) => Some(protection.state()?),
+        };
+        let encrypted = encryption.is_some();
         if let Some(state) = encryption {
             base.encrypt(&state)?;
         }
         let mut bytes = Vec::new();
         base.save_to(&mut bytes).map_err(BuildError::Write)?;
+        // Object streams pack the small objects together; kept only when smaller. (lopdf does
+        // not encrypt object streams, so encrypted files are written without them.)
+        if options.compress && !encrypted {
+            let save = lopdf::SaveOptions::builder().use_object_streams(true).use_xref_streams(true).compression_level(9).build();
+            let mut packed = Vec::new();
+            if base.save_with_options(&mut packed, save).is_ok() && packed.len() < bytes.len() {
+                bytes = packed;
+            }
+        }
         Ok(bytes)
     }
 }
@@ -587,6 +616,63 @@ mod tests {
             reopened.get_dictionary(pages[1]).unwrap().get(b"CropBox").unwrap().as_array().unwrap().iter().map(|v| v.as_float().unwrap()).collect();
         assert_eq!(crop_box, vec![50.0, 60.0, 450.0, 560.0]);
         assert_eq!(Metadata::read(&reopened), metadata);
+    }
+
+    #[test]
+    fn protects_and_removes_protection() {
+        use crate::security::{Allowed, Protection, Security, allowed};
+        let document = open("sample.pdf");
+        let protection = Protection {
+            user_password: "user".into(),
+            owner_password: "owner".into(),
+            allowed: Allowed { print: false, ..Allowed::default() },
+        };
+        for compress in [false, true] {
+            let options = BuildOptions { security: Security::Protect(protection.clone()), compress, ..BuildOptions::default() };
+            let bytes = document.build_with(&options).unwrap();
+            let locked = lopdf::Document::load_mem(&bytes).unwrap();
+            assert!(locked.is_encrypted() && locked.authenticate_password("").is_err());
+            assert!(locked.authenticate_password("user").is_ok() && locked.authenticate_password("owner").is_ok());
+            assert_eq!(allowed(&locked), Allowed { print: false, ..Allowed::default() });
+            assert!(titles(&reopen(&bytes, Some("user")))[0].starts_with("Recto sample, page 1"));
+        }
+        // Without an owner password, a random one: the user password still opens the file.
+        let open_only = Protection { owner_password: String::new(), ..protection };
+        let bytes = document.build_with(&BuildOptions { security: Security::Protect(open_only), ..BuildOptions::default() }).unwrap();
+        assert!(lopdf::Document::load_mem(&bytes).unwrap().authenticate_password("").is_err());
+        assert_eq!(reopen(&bytes, Some("user")).len(), 3);
+
+        let mut locked = open("protected.pdf");
+        assert!(locked.unlock("recto"));
+        let bytes = locked.build_with(&BuildOptions { security: Security::Remove, ..BuildOptions::default() }).unwrap();
+        let plain = lopdf::Document::load_mem(&bytes).unwrap();
+        assert!(!plain.is_encrypted() && plain.trailer.get(b"Encrypt").is_err());
+        assert!(titles(&reopen(&bytes, None))[0].starts_with("Page 1"));
+    }
+
+    #[test]
+    fn grayscale_and_compression() {
+        let document = open("sample.pdf");
+        let plain = document.build_with(&BuildOptions { grayscale: true, ..BuildOptions::default() }).unwrap();
+        let reopened = lopdf::Document::load_mem(&plain).unwrap();
+        let spaces: Vec<Vec<u8>> = reopened
+            .objects
+            .values()
+            .filter_map(|object| object.as_stream().ok())
+            .filter(|stream| stream.dict.get(b"Subtype").ok().and_then(|value| value.as_name().ok()) == Some(b"Image"))
+            .map(|stream| stream.dict.get(b"ColorSpace").unwrap().as_name().unwrap().to_vec())
+            .collect();
+        assert!(!spaces.is_empty() && spaces.iter().all(|space| space == b"DeviceGray"), "{spaces:?}");
+        for page in reopened.get_pages().into_values() {
+            let content = String::from_utf8_lossy(&reopened.get_page_content(page)).into_owned();
+            assert!(!content.contains(" rg") && !content.contains(" RG"), "{content}");
+        }
+        assert_eq!(titles(&reopen(&plain, None)).len(), 3);
+
+        let compressed = document.build_with(&BuildOptions { compress: true, ..BuildOptions::default() }).unwrap();
+        let normal = open("sample.pdf").build_pages(&document.pages()).unwrap();
+        assert!(compressed.len() <= normal.len(), "{} > {}", compressed.len(), normal.len());
+        assert!(titles(&reopen(&compressed, None))[2].starts_with("Recto sample, page 3"));
     }
     #[test]
     fn subsets_and_errors() {

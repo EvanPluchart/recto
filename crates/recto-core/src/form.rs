@@ -469,13 +469,13 @@ mod tests {
     fn flattening_removes_the_form() {
         let mut document = forms();
         fill(&mut document, "name", "Flat");
-        let bytes = document.build_with(BuildOptions { flatten_forms: true }).unwrap();
+        let bytes = document.build_with(&BuildOptions { flatten_forms: true, ..BuildOptions::default() }).unwrap();
         let parsed = lopdf::Document::load_mem(&bytes).unwrap();
         assert!(parsed.catalog().unwrap().get(b"AcroForm").is_err());
         let page = *parsed.get_pages().values().next().unwrap();
         assert!(parsed.get_dictionary(page).unwrap().get(b"Annots").is_err());
         assert!(Document::from_bytes(bytes).unwrap().form_fields().unwrap().is_empty());
         // Unedited documents are only rebuilt when flattening is asked for.
-        assert_eq!(forms().build_with(BuildOptions::default()).unwrap(), forms().bytes().to_vec());
+        assert_eq!(forms().build_with(&BuildOptions::default()).unwrap(), forms().bytes().to_vec());
     }
 }

@@ -9,4 +9,5 @@ authors.workspace = true
 lopdf = { workspace = true }
 pdf-writer.workspace = true
 image = { workspace = true, features = ["jpeg"] }
+getrandom.workspace = true
 thiserror.workspace = true
