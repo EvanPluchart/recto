@@ -7,7 +7,9 @@ use gpui::{
 };
 use recto_core::op::Rotation;
 
-use super::annotate::{COLORS, Tool, WIDTHS};
+use super::annotate::{COLORS, FONTS, SIZES, Tool, WIDTHS, text_area};
+use recto_core::annot::{Annotation, Font, Kind};
+use recto_core::geom::{PageGeometry, Point};
 use super::dialog::DialogKind;
 use super::output::SplitMode;
 use super::tools::ToolKind;
@@ -309,12 +311,56 @@ impl Viewer {
                     )
                     .on_click(cx.listener(move |viewer, _, window, cx| {
                         viewer.inspector.color = color;
-                        viewer.restyle_picked(Some(color), None, window, cx);
+                        viewer.restyle_picked(|annotation, _| annotation.color = color, window, cx);
                         cx.notify();
                     })),
             );
         }
         bar = bar.child(separator(theme));
+        // Text boxes take a font and a size; everything else a line width.
+        if self.tool == Tool::Text || self.picked_text().is_some() {
+            let (size_now, font_now) = self.picked_text().unwrap_or((self.inspector.size, self.inspector.font));
+            // One button goes through the fonts, showing the current one.
+            let at = FONTS.iter().position(|(font, _)| *font == font_now).unwrap_or(0);
+            let (next, _) = FONTS[(at + 1) % FONTS.len()];
+            bar = bar.child(
+                text_choice(("font", 0), "Aa", false, theme)
+                    .min_w(px(22.))
+                    .px(px(2.))
+                    .when(font_now == Font::TimesRoman, |b| b.font_family("Times New Roman"))
+                    .when(font_now == Font::Courier, |b| b.font_family("Courier New"))
+                    .text_sm()
+                    .tooltip(crate::chrome::tooltip(FONTS[at].1, theme))
+                    .on_click(cx.listener(move |viewer, _, window, cx| {
+                        viewer.inspector.font = next;
+                        viewer.restyle_picked(|annotation, geometry| retext(annotation, geometry, None, Some(next)), window, cx);
+                        cx.notify();
+                    })),
+            );
+            // A smaller and a larger size around the current one.
+            let step = |down: bool| {
+                let sizes = SIZES.iter().copied();
+                if down { sizes.rev().find(|&size| size < size_now) } else { sizes.into_iter().find(|&size| size > size_now) }
+            };
+            for (n, (glyph, size)) in [("−", step(true)), ("+", step(false))].into_iter().enumerate() {
+                let mut button = text_choice(("size", n), glyph, false, theme).tooltip(crate::chrome::tooltip("Text size", theme));
+                match size {
+                    Some(size) => {
+                        button = button.on_click(cx.listener(move |viewer, _, window, cx| {
+                            viewer.inspector.size = size;
+                            viewer.restyle_picked(|annotation, geometry| retext(annotation, geometry, Some(size), None), window, cx);
+                            cx.notify();
+                        }));
+                    }
+                    None => button = button.opacity(0.4).cursor_default(),
+                }
+                if n == 1 {
+                    bar = bar.child(div().min_w(px(16.)).flex().justify_center().text_xs().child(format!("{size_now}")));
+                }
+                bar = bar.child(button.min_w(px(16.)).px(px(2.)));
+            }
+            return Some(bar.into_any_element());
+        }
         for (n, width) in WIDTHS.into_iter().enumerate() {
             let active = self.picked_style().map_or(self.inspector.width, |style| style.1) == width;
             bar = bar.child(
@@ -333,7 +379,7 @@ impl Viewer {
                     .child(div().w(px(14.)).h(px(width.max(1.0))).rounded(px(1.)).bg(if active { theme.highlight } else { theme.icon }))
                     .on_click(cx.listener(move |viewer, _, window, cx| {
                         viewer.inspector.width = width;
-                        viewer.restyle_picked(None, Some(width), window, cx);
+                        viewer.restyle_picked(|annotation, _| annotation.width = width, window, cx);
                         cx.notify();
                     })),
             );
@@ -417,4 +463,33 @@ impl Viewer {
         }
         cx.notify();
     }
+}
+
+/// A tool bar choice showing `label`, highlighted when `active`.
+fn text_choice(id: (&'static str, usize), label: impl Into<gpui::SharedString>, active: bool, theme: crate::theme::Theme) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .min_w(px(28.))
+        .px(px(5.))
+        .h(px(CONTROL))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(theme.radius))
+        .cursor_pointer()
+        .text_xs()
+        .text_color(if active { theme.highlight } else { theme.text })
+        .when(active, |b| b.bg(theme.active))
+        .hover(move |s| s.bg(theme.hover))
+        .child(label.into())
+}
+
+/// A text box with a new `size` and/or `font`, its box fitted to the text from the same
+/// top-left corner.
+fn retext(annotation: &mut Annotation, geometry: &PageGeometry, new_size: Option<f32>, new_font: Option<Font>) {
+    let Kind::Text { rect, text, size, font, .. } = &mut annotation.kind else { return };
+    *size = new_size.unwrap_or(*size);
+    *font = new_font.unwrap_or(*font);
+    let shown = geometry.rect_to_display(*rect);
+    *rect = geometry.rect_to_user(text_area(text, *size, *font, Point { x: shown.x, y: shown.y }));
 }

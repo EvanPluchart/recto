@@ -3,7 +3,7 @@
 
 use gpui::{AnyElement, Context, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Styled, Window, div, px};
 use recto_core::annot::{Annotation, Color, Kind};
-use recto_core::geom::{PageRect, Point};
+use recto_core::geom::{PageGeometry, PageRect, Point};
 use recto_core::op::Op;
 
 use super::Viewer;
@@ -165,12 +165,22 @@ impl Viewer {
         self.picked.as_ref().map(|picked| (picked.annotation.color, picked.annotation.width))
     }
 
-    /// Gives the picked annotation `color` and/or line `width`, as chosen in the tool bar.
-    pub(super) fn restyle_picked(&mut self, color: Option<Color>, width: Option<f32>, window: &mut Window, cx: &mut Context<Self>) {
+    /// The size and font of the picked text box.
+    pub(super) fn picked_text(&self) -> Option<(f32, recto_core::annot::Font)> {
+        match self.picked.as_ref()?.annotation.kind {
+            Kind::Text { size, font, .. } => Some((size, font)),
+            _ => None,
+        }
+    }
+
+    /// Applies `change` (a colour, width, size or font chosen in the tool bar) to the picked
+    /// annotation, given the geometry of its page.
+    pub(super) fn restyle_picked(&mut self, change: impl FnOnce(&mut Annotation, &PageGeometry), window: &mut Window, cx: &mut Context<Self>) {
+        let Some(page) = self.picked.as_ref().map(|picked| picked.page) else { return };
+        let Some(geometry) = self.open().and_then(|open| open.geometry.get(page).copied()) else { return };
         let Some(picked) = self.picked.as_mut() else { return };
         let mut annotation = picked.annotation.clone();
-        annotation.color = color.unwrap_or(annotation.color);
-        annotation.width = width.unwrap_or(annotation.width);
+        change(&mut annotation, &geometry);
         if annotation == picked.annotation {
             return;
         }

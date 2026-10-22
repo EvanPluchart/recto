@@ -36,6 +36,8 @@ pub enum Font {
     TimesItalic,
     /// For stamps.
     HelveticaBold,
+    TimesRoman,
+    Courier,
 }
 
 impl Font {
@@ -44,6 +46,8 @@ impl Font {
             Font::Helvetica => b"Helvetica",
             Font::TimesItalic => b"Times-Italic",
             Font::HelveticaBold => b"Helvetica-Bold",
+            Font::TimesRoman => b"Times-Roman",
+            Font::Courier => b"Courier",
         }
     }
 }
@@ -704,6 +708,10 @@ pub(crate) const HELVETICA: [u16; 95] = [
 
 /// Width of the widest line of `text` set in `font` at `size` points.
 pub fn text_width(text: &str, size: f32, font: Font) -> f32 {
+    if font == Font::Courier {
+        // Every glyph is 600 units wide.
+        return text.lines().map(|line| line.chars().count() as f32 * 0.6 * size).fold(0.0, f32::max);
+    }
     let line_width = |line: &str| -> f32 {
         line.chars()
             .map(|c| HELVETICA.get((c as usize).wrapping_sub(32)).copied().unwrap_or(600) as f32)
@@ -715,6 +723,8 @@ pub fn text_width(text: &str, size: f32, font: Font) -> f32 {
     let factor = match font {
         Font::Helvetica => 1.0,
         Font::TimesItalic => 0.88,
+        Font::TimesRoman => 0.9,
+        Font::Courier => 1.0,
         // Helvetica Bold runs about 8 % wider.
         Font::HelveticaBold => 1.08,
     };
@@ -745,5 +755,8 @@ mod tests {
         assert!((text_width("Hi", 10.0, Font::Helvetica) - 9.44).abs() < 0.001);
         assert!((text_width("a\nlonger", 10.0, Font::Helvetica) - text_width("longer", 10.0, Font::Helvetica)).abs() < 0.001);
         assert!(text_width("WIDE", 10.0, Font::Helvetica) > text_width("wide", 10.0, Font::Helvetica));
+        // Courier: 600 units a glyph, whatever the glyph.
+        assert!((text_width("iW
+abc", 10.0, Font::Courier) - 18.0).abs() < 0.001);
     }
 }

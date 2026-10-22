@@ -142,6 +142,10 @@ impl Tool {
 
 pub const COLORS: [Color; 5] = [Color::BLACK, Color::RED, Color::BLUE, Color::GREEN, Color::YELLOW];
 pub const WIDTHS: [f32; 3] = [1.0, 2.5, 5.0];
+/// Text sizes offered for text boxes, in points.
+pub const SIZES: [f32; 5] = [10.0, 14.0, 18.0, 24.0, 36.0];
+/// Fonts offered for text boxes, with the tooltip naming them.
+pub const FONTS: [(Font, &str); 3] = [(Font::Helvetica, "Font: sans serif"), (Font::TimesRoman, "Font: serif"), (Font::Courier, "Font: monospace")];
 
 /// Options of the annotation being made.
 #[derive(Clone, Copy, Debug)]
@@ -149,11 +153,12 @@ pub struct Inspector {
     pub color: Color,
     pub width: f32,
     pub size: f32,
+    pub font: Font,
 }
 
 impl Default for Inspector {
     fn default() -> Self {
-        Self { color: Color::BLACK, width: 2.5, size: 14.0 }
+        Self { color: Color::BLACK, width: 2.5, size: 14.0, font: Font::Helvetica }
     }
 }
 
@@ -404,11 +409,11 @@ impl Viewer {
 
     /// Opens the editor over text box `id` of displayed page `page`, holding its text.
     pub(super) fn edit_text_annotation(&mut self, page: usize, id: u64, annotation: Annotation, window: &mut Window, cx: &mut Context<Self>) {
-        let Kind::Text { rect, text, size, .. } = &annotation.kind else { return };
+        let Kind::Text { rect, text, size, font, .. } = &annotation.kind else { return };
         let Some(geometry) = self.geometry(page) else { return };
         let shown = geometry.rect_to_display(*rect);
-        let (text, size) = (text.clone(), *size);
-        self.inspector.size = size;
+        let text = text.clone();
+        (self.inspector.size, self.inspector.font) = (*size, *font);
         self.start_text(page, Point { x: shown.x, y: shown.y }, Some((id, annotation)), window, cx);
         if let Some(draft) = &self.text_draft {
             draft.input.update(cx, |input, cx| {
@@ -447,9 +452,8 @@ impl Viewer {
             }
             return cx.notify();
         }
-        let size = self.inspector.size;
-        let area = PageRect { x: at.x, y: at.y, width: text_width(&text, size, Font::Helvetica) + 6.0, height: size * 1.3 + 4.0 };
-        let kind = Kind::Text { rect: geometry.rect_to_user(area), text, size, font: Font::Helvetica, upright: geometry.rotate };
+        let (size, font) = (self.inspector.size, self.inspector.font);
+        let kind = Kind::Text { rect: geometry.rect_to_user(text_area(&text, size, font, at)), text, size, font, upright: geometry.rotate };
         match target {
             Some((id, annotation)) => {
                 let annotation = Annotation { kind, ..annotation };
@@ -621,4 +625,10 @@ impl Viewer {
 /// The highlighter's stroke for a line width of the inspector.
 pub fn marker_width(width: f32) -> f32 {
     width * 5.0
+}
+
+/// The box of a text box showing `text` in `font` at `size` points, its top-left corner at `at`
+/// (displayed page points).
+pub fn text_area(text: &str, size: f32, font: Font, at: Point) -> PageRect {
+    PageRect { x: at.x, y: at.y, width: text_width(text, size, font) + 6.0, height: size * 1.3 + 4.0 }
 }
