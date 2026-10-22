@@ -58,6 +58,7 @@ icons![
     "search",
     "signature",
     "square",
+    "stamp",
     "strikethrough",
     "sun",
     "text-cursor-input",

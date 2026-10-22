@@ -34,6 +34,8 @@ pub enum Tool {
     Marker,
     Image,
     Signature,
+    /// A rubber stamp ("APPROVED") where the page is clicked.
+    Stamp,
     /// Removes what lies under a dragged area.
     Redact,
     /// Erases what lies under a dragged area (white).
@@ -47,7 +49,7 @@ pub enum Tool {
 }
 
 impl Tool {
-    pub const ALL: [Tool; 18] = [
+    pub const ALL: [Tool; 19] = [
         Tool::Select,
         Tool::Text,
         Tool::Highlight,
@@ -61,6 +63,7 @@ impl Tool {
         Tool::Marker,
         Tool::Image,
         Tool::Signature,
+        Tool::Stamp,
         Tool::Redact,
         Tool::Erase,
         Tool::DeleteImage,
@@ -84,6 +87,7 @@ impl Tool {
             Tool::Marker => "marker",
             Tool::Image => "image",
             Tool::Signature => "signature",
+            Tool::Stamp => "stamp",
             Tool::Redact => "redact",
             Tool::Erase => "erase",
             Tool::DeleteImage => "deleteimage",
@@ -111,6 +115,7 @@ impl Tool {
             Tool::Marker => "Highlighter",
             Tool::Image => "Image",
             Tool::Signature => "Sign",
+            Tool::Stamp => "Stamp",
             Tool::Redact => "Redact",
             Tool::Erase => "Erase",
             Tool::DeleteImage => "Delete an image",
@@ -228,6 +233,7 @@ impl Viewer {
         match self.tool {
             Tool::Text => self.start_text(page, at, window, cx),
             Tool::DeleteImage => self.delete_image_at(page, at, window, cx),
+            Tool::Stamp => self.open_stamp(page, at, window, cx),
             Tool::EditText => self.start_text_edit(page, at, window, cx),
             Tool::Image => self.prompt_image(page, at, window, cx),
             Tool::Signature => match self.signature.clone() {

@@ -34,6 +34,8 @@ pub enum Font {
     Helvetica,
     /// For typed signatures.
     TimesItalic,
+    /// For stamps.
+    HelveticaBold,
 }
 
 impl Font {
@@ -41,6 +43,7 @@ impl Font {
         match self {
             Font::Helvetica => b"Helvetica",
             Font::TimesItalic => b"Times-Italic",
+            Font::HelveticaBold => b"Helvetica-Bold",
         }
     }
 }
@@ -155,6 +158,9 @@ pub enum Kind {
     Rectangle { rect: Rect },
     Ellipse { rect: Rect },
     Line { from: Point, to: Point, arrow: bool },
+    /// A rubber stamp: `label` in bold capitals inside a rounded frame filling `rect`, upright
+    /// like text.
+    Label { rect: Rect, label: String, upright: u16 },
     /// A filled vector shape stretched over `rect` (typed signatures in a handwriting font),
     /// upright like text.
     Shape { rect: Rect, outline: Arc<Outline>, upright: u16 },
@@ -249,7 +255,7 @@ impl Annotation {
     fn subtype(&self) -> &'static [u8] {
         match self.kind {
             Kind::Text { .. } => b"FreeText",
-            Kind::Image { .. } | Kind::Shape { .. } => b"Stamp",
+            Kind::Image { .. } | Kind::Shape { .. } | Kind::Label { .. } => b"Stamp",
             Kind::Rectangle { .. } => b"Square",
             Kind::Ellipse { .. } => b"Circle",
             Kind::Line { .. } => b"Line",
@@ -264,7 +270,12 @@ impl Annotation {
     pub fn rect(&self) -> Rect {
         let margin = self.width.max(1.0);
         match &self.kind {
-            Kind::Text { rect, .. } | Kind::Image { rect, .. } | Kind::Shape { rect, .. } | Kind::Rectangle { rect } | Kind::Ellipse { rect } => *rect,
+            Kind::Text { rect, .. }
+            | Kind::Image { rect, .. }
+            | Kind::Shape { rect, .. }
+            | Kind::Label { rect, .. }
+            | Kind::Rectangle { rect }
+            | Kind::Ellipse { rect } => *rect,
             Kind::Line { from, to, .. } => bounds([*from, *to], margin * 4.0 + 6.0),
             Kind::Ink { strokes } | Kind::Marker { strokes } => bounds(strokes.iter().flatten().copied(), margin),
             Kind::Highlight { quads } | Kind::Underline { quads } | Kind::StrikeOut { quads } => {
@@ -277,7 +288,12 @@ impl Annotation {
     /// resizing act on.
     pub fn frame(&self) -> Rect {
         match &self.kind {
-            Kind::Text { rect, .. } | Kind::Image { rect, .. } | Kind::Shape { rect, .. } | Kind::Rectangle { rect } | Kind::Ellipse { rect } => *rect,
+            Kind::Text { rect, .. }
+            | Kind::Image { rect, .. }
+            | Kind::Shape { rect, .. }
+            | Kind::Label { rect, .. }
+            | Kind::Rectangle { rect }
+            | Kind::Ellipse { rect } => *rect,
             Kind::Line { from, to, .. } => bounds([*from, *to], 0.0),
             Kind::Ink { strokes } | Kind::Marker { strokes } => bounds(strokes.iter().flatten().copied(), 0.0),
             Kind::Highlight { quads } | Kind::Underline { quads } | Kind::StrikeOut { quads } => {
@@ -305,6 +321,7 @@ impl Annotation {
             }
             Kind::Image { rect: r, image, upright } => Kind::Image { rect: rect(*r), image: image.clone(), upright: *upright },
             Kind::Shape { rect: r, outline, upright } => Kind::Shape { rect: rect(*r), outline: outline.clone(), upright: *upright },
+            Kind::Label { rect: r, label, upright } => Kind::Label { rect: rect(*r), label: label.clone(), upright: *upright },
             Kind::Rectangle { rect: r } => Kind::Rectangle { rect: rect(*r) },
             Kind::Ellipse { rect: r } => Kind::Ellipse { rect: rect(*r) },
             Kind::Line { from, to, arrow } => Kind::Line { from: point(*from), to: point(*to), arrow: *arrow },
@@ -366,6 +383,37 @@ impl Annotation {
                 images.set("Im0", Object::Reference(add_image(document, image)));
                 resources.set("XObject", Object::Dictionary(images));
                 content.save_state().transform([width, 0.0, 0.0, height, 0.0, 0.0]).x_object(Name(b"Im0")).restore_state();
+            }
+            Kind::Label { label, upright, .. } => {
+                annotation.set("Contents", text_string(label));
+                let (width, height) = upright_size(&rect, *upright);
+                bbox = Rect { origin: Point { x: 0.0, y: 0.0 }, width, height };
+                matrix = upright_matrix(*upright);
+                let mut fonts = Dictionary::new();
+                fonts.set("F1", Object::Reference(add_font(document, Font::HelveticaBold)));
+                resources.set("Font", Object::Dictionary(fonts));
+                // A frame inset by half its line, corners rounded by a quarter of the height.
+                let line = (height / 14.0).max(1.5);
+                let (x0, y0, x1, y1) = (line / 2.0, line / 2.0, width - line / 2.0, height - line / 2.0);
+                let radius = ((y1 - y0) / 4.0).min((x1 - x0) / 4.0);
+                let k = radius * 0.5523;
+                content.set_stroke_rgb(r, g, b).set_line_width(line);
+                content.move_to(x0 + radius, y0);
+                content.line_to(x1 - radius, y0);
+                content.cubic_to(x1 - radius + k, y0, x1, y0 + radius - k, x1, y0 + radius);
+                content.line_to(x1, y1 - radius);
+                content.cubic_to(x1, y1 - radius + k, x1 - radius + k, y1, x1 - radius, y1);
+                content.line_to(x0 + radius, y1);
+                content.cubic_to(x0 + radius - k, y1, x0, y1 - radius + k, x0, y1 - radius);
+                content.line_to(x0, y0 + radius);
+                content.cubic_to(x0, y0 + radius - k, x0 + radius - k, y0, x0 + radius, y0);
+                content.close_path().stroke();
+                let size = height * 0.5;
+                let text_width = text_width(label, size, Font::HelveticaBold);
+                content.begin_text().set_font(Name(b"F1"), size).set_fill_rgb(r, g, b);
+                content.next_line((width - text_width) / 2.0, (height - size * 0.72) / 2.0);
+                content.show(Str(&win_ansi(label)));
+                content.end_text();
             }
             Kind::Shape { outline, upright, .. } => {
                 let (width, height) = upright_size(&rect, *upright);
@@ -587,6 +635,8 @@ pub fn text_width(text: &str, size: f32, font: Font) -> f32 {
     let factor = match font {
         Font::Helvetica => 1.0,
         Font::TimesItalic => 0.88,
+        // Helvetica Bold runs about 8 % wider.
+        Font::HelveticaBold => 1.08,
     };
     text.lines().map(line_width).fold(0.0, f32::max) * factor
 }

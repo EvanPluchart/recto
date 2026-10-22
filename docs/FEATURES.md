@@ -43,6 +43,6 @@ Legend: milestone where it lands, or `later` / `no`.
 | Sign | Several handwriting styles and ink colours, signature from an image | done: four OFL handwriting fonts written as vector outlines, three inks, image through the Image tool |
 | Text | Find and replace | done (edit mode, search bar): exact matches in editable lines, rewritten like Edit text |
 | Annotate | Freehand highlighter, hide annotations | done: Highlighter tool (translucent, multiplied ink), a toggle in the app bar draws pages without annotations and form fields |
-| Annotate | Stamps placed by hand ("DRAFT", "PAID") | partial (watermark only) |
+| Annotate | Stamps placed by hand ("DRAFT", "PAID") | done: Stamp tool, eight ready-made stamps or free text, bold capitals in a rounded frame |
 | Links | Add and edit links | missing |
 | Forms | Symbols (✕ ✓ •), create fields, detect fields, tab order | missing |

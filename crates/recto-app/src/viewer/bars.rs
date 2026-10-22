@@ -39,7 +39,7 @@ const TOOL_GROUPS: [&[Tool]; 5] = [
     &[Tool::Select],
     &[Tool::Text, Tool::Highlight, Tool::Underline, Tool::StrikeOut],
     &[Tool::Rectangle, Tool::Ellipse, Tool::Line, Tool::Arrow, Tool::Freehand, Tool::Marker],
-    &[Tool::Image, Tool::Signature],
+    &[Tool::Image, Tool::Signature, Tool::Stamp],
     &[Tool::Redact, Tool::Erase, Tool::DeleteImage, Tool::Crop, Tool::EditText],
 ];
 
@@ -58,6 +58,7 @@ fn tool_icon(tool: Tool) -> &'static str {
         Tool::Marker => "paintbrush",
         Tool::Image => "image",
         Tool::Signature => "signature",
+        Tool::Stamp => "stamp",
         Tool::Redact => "eye-off",
         Tool::Erase => "eraser",
         Tool::DeleteImage => "image-off",
@@ -277,6 +278,7 @@ impl Viewer {
             for &tool in *group {
                 bar = bar.child(
                     icon_button(tool.name(), tool_icon(tool), tool.label(), self.tool == tool, true, theme)
+                        .w(px(26.))
                         .on_click(cx.listener(move |viewer, _, _, cx| viewer.set_tool(tool, cx))),
                 );
             }

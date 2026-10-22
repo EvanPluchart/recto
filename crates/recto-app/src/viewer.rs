@@ -398,6 +398,7 @@ impl Viewer {
             Some("extract") => viewer.open_dialog(DialogKind::Extract, window, cx),
             Some("split") => viewer.open_dialog(DialogKind::Split(SplitMode::Ranges), window, cx),
             Some("signature") => viewer.open_signature_dialog(window, cx),
+            Some("stamp") => viewer.open_stamp(0, recto_core::geom::Point { x: 72.0, y: 72.0 }, window, cx),
             _ => {}
         }
         if let Some(query) = args.find {

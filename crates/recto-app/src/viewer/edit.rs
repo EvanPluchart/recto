@@ -71,6 +71,15 @@ pub fn parse_edits(spec: &str) -> Result<Vec<EditSpec>, String> {
                     ..Stamp::page_numbers()
                 })),
                 "title" => Ok(EditSpec::Title(value.to_owned())),
+                "stamp" => {
+                    let mut fields = value.splitn(4, ':');
+                    let (page, x, y, text) = (fields.next(), fields.next(), fields.next(), fields.next());
+                    let (Some(page), Some(x), Some(y), Some(text)) = (page, x, y, text) else {
+                        return Err(format!("expected stamp:P:X:Y:TEXT, got {part}"));
+                    };
+                    let at = Point { x: coordinate(x)?, y: coordinate(y)? };
+                    Ok(EditSpec::Draw { tool: Tool::Stamp, page: number(page)?, points: vec![at], text: text.to_owned() })
+                }
                 "sign" => {
                     let fields: Vec<&str> = value.splitn(6, ':').collect();
                     let [page, x, y, style, ink, name] = fields[..] else { return Err(format!("expected sign:P:X:Y:STYLE:INK:NAME, got {part}")) };
@@ -356,6 +365,12 @@ impl Viewer {
                         Tool::Line | Tool::Arrow => Kind::Line { from: user[0], to: user[1], arrow: tool == Tool::Arrow },
                         Tool::Freehand => Kind::Ink { strokes: vec![user] },
                         Tool::Marker => Kind::Marker { strokes: vec![user] },
+                        Tool::Stamp => {
+                            let label = text.to_uppercase();
+                            let width = recto_core::annot::text_width(&label, 18.0, Font::HelveticaBold) + 36.0;
+                            let rect = page.rect_to_user(PageRect { x: points[0].x, y: points[0].y, width, height: 36.0 });
+                            Kind::Label { rect, label, upright: page.rotate }
+                        }
                         Tool::Text => {
                             let size = inspector.size;
                             let at = points[0];

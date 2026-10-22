@@ -20,6 +20,8 @@ pub enum ToolKind {
     HeaderFooter,
     Properties,
     Export,
+    /// A rubber stamp placed where the page was clicked.
+    Stamp,
 }
 
 /// Toggles of the forms, by meaning.
@@ -111,6 +113,8 @@ pub struct ToolDialog {
     fields: Vec<(Field, Entity<TextInput>)>,
     flags: Vec<(Flag, bool)>,
     position: Position,
+    /// For stamps: the displayed page and the point clicked.
+    at: Option<(usize, recto_core::geom::Point)>,
     error: Option<SharedString>,
 }
 
@@ -163,6 +167,7 @@ impl Viewer {
                 Vec::new(),
                 Position::Center,
             ),
+            ToolKind::Stamp => (vec![(Field::Text, t(STAMPS[0]).to_owned())], Vec::new(), Position::Center),
             ToolKind::Export => {
                 let mut flags = vec![(Flag::Compress, true), (Flag::Grayscale, false)];
                 if has_fields {
@@ -203,7 +208,7 @@ impl Viewer {
         if let Some((_, first)) = fields.iter().find(|(field, _)| !matches!(field, Field::OpenPassword | Field::OwnerPassword)) {
             first.update(cx, |input, cx| input.focus_all(window, cx));
         }
-        self.tool_dialog = Some(ToolDialog { kind, fields, flags, position, error: None });
+        self.tool_dialog = Some(ToolDialog { kind, fields, flags, position, at: None, error: None });
         cx.notify();
     }
 
@@ -233,6 +238,10 @@ impl Viewer {
                 Ok(())
             }
             ToolKind::Export => self.export_options(dialog, cx).map(|options| self.export(options, window, cx)),
+            ToolKind::Stamp => {
+                let (label, at) = (dialog.text(Field::Text, cx), dialog.at);
+                self.place_stamp(label, at, window, cx)
+            }
         };
         match result {
             Ok(()) => self.close_tool(window, cx),
@@ -304,6 +313,7 @@ impl Viewer {
             ToolKind::HeaderFooter => ("Header or footer", "A line of text on each page. {page} and {pages} are replaced."),
             ToolKind::Properties => ("Document properties", "Shown by readers and file browsers."),
             ToolKind::Export => ("Export", "Saves a copy with these options; the open document does not change."),
+            ToolKind::Stamp => ("Stamp", "Click a stamp, or type your own text."),
         };
         let chip = |id: SharedString, label: &'static str, active: bool| {
             div()
@@ -347,6 +357,19 @@ impl Viewer {
                     .child(div().w(px(150.)).flex_none().text_color(theme.muted).child(t(field.label())))
                     .child(div().flex_1().child(input.clone())),
             );
+        }
+        if dialog.kind == ToolKind::Stamp {
+            let mut presets = div().flex().flex_wrap().gap(px(6.));
+            for (n, label) in STAMPS.into_iter().enumerate() {
+                presets = presets.child(chip(format!("stamp-{n}").into(), label, false).on_click(cx.listener(move |viewer, _, window, cx| {
+                    let input = viewer.tool_dialog.as_ref().and_then(|dialog| dialog.fields.first().map(|(_, input)| input.clone()));
+                    if let Some(input) = input {
+                        input.update(cx, |input, cx| input.set_text(t(label), cx));
+                    }
+                    viewer.submit_tool(window, cx);
+                })));
+            }
+            card = card.child(presets);
         }
         if matches!(dialog.kind, ToolKind::Watermark | ToolKind::PageNumbers | ToolKind::HeaderFooter) {
             // Three rows, as the positions sit on the page: top, middle, bottom.
@@ -449,5 +472,35 @@ impl Viewer {
                 .child(card)
                 .into_any_element(),
         )
+    }
+}
+
+/// Ready-made stamps (translated when shown).
+const STAMPS: [&str; 8] = ["APPROVED", "DRAFT", "CONFIDENTIAL", "PAID", "RECEIVED", "COPY", "URGENT", "VOID"];
+
+impl Viewer {
+    /// Opens the stamp form for a stamp at displayed point `at` of page `page`.
+    pub(super) fn open_stamp(&mut self, page: usize, at: recto_core::geom::Point, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_tool(ToolKind::Stamp, window, cx);
+        if let Some(dialog) = &mut self.tool_dialog {
+            dialog.at = Some((page, at));
+        }
+    }
+
+    fn place_stamp(&mut self, label: String, at: Option<(usize, recto_core::geom::Point)>, window: &mut Window, cx: &mut Context<Self>) -> Result<(), String> {
+        let label = label.trim().to_uppercase();
+        if label.is_empty() {
+            return Err(t("Enter the text to show.").to_owned());
+        }
+        let Some((page, at)) = at else { return Ok(()) };
+        let Some(geometry) = self.open().and_then(|open| open.geometry.get(page).copied()) else { return Ok(()) };
+        let Some(id) = self.open().and_then(|open| open.page_states.get(page)).map(|state| state.id) else { return Ok(()) };
+        let height = 36.0;
+        let width = recto_core::annot::text_width(&label, height * 0.5, recto_core::annot::Font::HelveticaBold) + height;
+        let area = recto_core::geom::PageRect { x: at.x, y: at.y, width, height };
+        let kind = recto_core::annot::Kind::Label { rect: geometry.rect_to_user(area), label, upright: geometry.rotate };
+        let annotation = recto_core::annot::Annotation { kind, color: self.inspector.color, width: 2.0 };
+        self.edit(Op::AddAnnotation { page: id, annotation }, window, cx);
+        Ok(())
     }
 }
