@@ -126,7 +126,7 @@ button, input, select { font: inherit; color: inherit; }
 .step { min-height: 78svh; display: flex; flex-direction: column; justify-content: center; gap: 20px; }
 .step-title { font-size: var(--t-head); font-weight: 650; letter-spacing: -0.035em; line-height: 1; text-wrap: balance; }
 .step p { max-width: 30em; }
-.js .step { opacity: 0.32; transition: opacity 400ms ease; }
+.js .step { opacity: 0.4; transition: opacity 400ms ease; }
 .js .step.is-current { opacity: 1; }
 
 /* Overlays, in the screenshot's own coordinates (900 × 1000 px) */
@@ -201,10 +201,10 @@ button, input, select { font: inherit; color: inherit; }
 /* Figures */
 .figures { padding-top: var(--section); }
 .figures-list { margin-top: 56px; }
-.figure { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gap); align-items: baseline; padding-block: 20px; }
+.figure { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gap); align-items: end; padding-block: 16px; }
 .figure + .figure { margin-top: 8px; }
 .figure dt { grid-column: 1 / span 7; font-size: var(--t-display); font-weight: 700; letter-spacing: -0.04em; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.figure dd { grid-column: 8 / span 5; font-size: var(--t-lead); line-height: 1.35; }
+.figure dd { grid-column: 8 / span 5; font-size: var(--t-lead); line-height: 1.35; padding-bottom: 0.5em; }
 
 /* FAQ: wide heading, indented questions */
 .faq { padding-top: var(--section); }
@@ -227,12 +227,13 @@ button, input, select { font: inherit; color: inherit; }
 .cta { margin-top: clamp(72px, 9vw, 128px); background: var(--fold); padding-block: clamp(72px, 9vw, 128px); }
 .cta-sentence {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2em 0.28em;
-  font-size: var(--t-head); font-weight: 650; letter-spacing: -0.04em; line-height: 1.1;
+  font-size: min(var(--t-head), 4.4vw); font-weight: 650; letter-spacing: -0.04em; line-height: 1.1;
 }
 .cta-select {
   font-size: 1em; font-weight: 650; letter-spacing: -0.04em; line-height: 1.1;
   height: 1.25em; padding: 0 1.1em 0 0.25em; border: 0; border-radius: 0; color: var(--ink);
   background: var(--paper) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%231B1F3B' stroke-width='2'/%3E%3C/svg%3E") no-repeat right 0.3em center / 0.4em;
+  field-sizing: content; max-width: 100%;
   appearance: none; -webkit-appearance: none; cursor: pointer;
 }
 .cta-button {
@@ -254,7 +255,8 @@ button, input, select { font: inherit; color: inherit; }
 .footer .button:hover { background: var(--paper); color: var(--ink); }
 .footer :focus-visible { outline-color: var(--paper); }
 .footer-legal { display: flex; justify-content: space-between; gap: 24px; margin-top: clamp(80px, 12vw, 180px); font-size: var(--t-small); color: var(--paper-muted); }
-.footer-mark { display: block; width: 112vw; height: auto; margin: 20px 0 -9vw calc(var(--margin) - 1vw); }
+/* The whole logo across the frame, ending the page. */
+.footer-mark { display: block; width: 100%; height: auto; margin-top: clamp(32px, 4vw, 56px); padding-bottom: clamp(32px, 4vw, 56px); }
 
 /* Motion. Content stays visible without script and with reduced motion. */
 @media (prefers-reduced-motion: no-preference) {
@@ -297,7 +299,7 @@ button, input, select { font: inherit; color: inherit; }
   .js .step { opacity: 1; }
   .compare-row { grid-template-columns: 3.4fr 2.2fr 2.2fr 2.2fr; }
   .board-grid { grid-template-areas: "pages pages pages pages pages pages pages pages pages pages pages pages" "find find find find find find find find find find find find" "sketch sketch sketch sketch sketch sketch doc doc doc doc doc doc" "sketch sketch sketch sketch sketch sketch export export export export export export" "mark mark mark mark mark mark mark mark mark mark mark mark"; }
-  .faq-list details { grid-column: 1 / -1; margin-inline: -24px; }
+  .faq-list details { grid-column: 1 / -1; margin-inline: calc(var(--margin) * -1); padding-inline: var(--margin); }
   .footer-invite { grid-column: 1 / -1; }
   .footer-links { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; gap: 8px 20px; margin-top: 40px; font-size: var(--t-small); }
 }
@@ -328,5 +330,4 @@ button, input, select { font: inherit; color: inherit; }
   .cta-sentence { font-size: 24px; letter-spacing: -0.02em; }
   .cta-select, .cta-button { letter-spacing: -0.02em; height: 44px; }
   .footer-legal { flex-direction: column; gap: 8px; }
-  .footer-mark { width: 150vw; margin-bottom: -12vw; }
 }
