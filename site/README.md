@@ -1,12 +1,14 @@
 # Landing page
 
-The static page for GitHub Pages, in French: `index.html`, `assets/` (stylesheet, script, fonts,
-screenshots, social image), the logo and favicons. No build step, no framework, no third-party
+The static page for GitHub Pages, in French (`index.html`) and English (`en/index.html`), sharing
+`assets/` (stylesheet, script, fonts, screenshots, social images; English screenshots in
+`assets/en/`), the logo and favicons. No build step, no framework, no third-party
 requests: fonts are self-hosted (SIL OFL, licences in `assets/fonts/`).
 
 * Design system and art direction: `DESIGN.md`.
-* Screenshots are the app on `target/demo.pdf` (`cargo xtask gen-demo`, a made-up quote), taken with
-  the `--apply` test flags and cropped to the window content.
+* Screenshots are the app on `target/demo.pdf` and `target/demo-en.pdf` (`cargo xtask gen-demo`, a
+  made-up quote in both languages, same layout), with `RECTO_LANG` set to match, taken with the
+  `--apply` test flags and cropped to the window content.
 * Publish: run the Pages workflow by hand (`.github/workflows/pages.yml`) once Pages is enabled with
   "GitHub Actions" as its source. The page expects to live at `https://evanpluchart.github.io/recto/`
   (canonical and social links); every asset path is relative.

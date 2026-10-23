@@ -49,7 +49,7 @@ ul, ol { padding: 0; list-style: none; }
 button, input, select { font: inherit; color: inherit; }
 ::selection { background: var(--fold); color: var(--ink); }
 :focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
-[id] { scroll-margin-top: 24px; }
+[id] { scroll-margin-top: 88px; }
 
 .frame { width: 100%; max-width: 1520px; margin-inline: auto; padding-inline: var(--margin); }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -73,11 +73,20 @@ button, input, select { font: inherit; color: inherit; }
   .nav nav a:hover, .footer-links a:hover { text-decoration-color: currentColor; }
 }
 
-/* Navigation */
+/* Navigation: sticky; it slides away while reading down and comes back on the way up. */
+.nav-bar { position: sticky; top: 0; z-index: 20; background: var(--bg); transition: transform 320ms var(--ease-out); }
+.nav-bar.is-hidden { transform: translateY(-100%); }
+.nav-bar.is-scrolled .nav { padding-block: 12px; }
+.nav-bar.is-scrolled .nav-logo img { height: 32px; }
+.nav-logo img { transition: height 240ms var(--ease-out); }
+.nav { transition: padding 240ms var(--ease-out); }
 .nav { display: flex; align-items: center; gap: var(--gap); padding-block: 22px; }
 .nav-logo img { height: 40px; width: auto; }
 .nav nav { display: flex; gap: clamp(16px, 2.4vw, 36px); margin-left: auto; font-size: var(--t-small); }
 .nav nav a { text-decoration: underline; text-decoration-color: transparent; transition: text-decoration-color 160ms ease; }
+.nav-github { display: inline-flex; align-items: center; gap: 8px; }
+.nav-lang { font-size: var(--t-small); font-weight: 600; min-width: 44px; min-height: 44px; display: inline-grid; place-items: center; text-decoration: none; background: var(--surface); }
+@media (hover: hover) and (pointer: fine) { .nav-lang:hover { background: var(--canvas); } }
 
 /* Hero: the sentence with the signature in its word space, then the app on a field of Fold */
 .hero { padding-top: clamp(48px, 7vw, 112px); }
@@ -88,9 +97,9 @@ button, input, select { font: inherit; color: inherit; }
 .hero-word { display: inline-block; }
 .hero-slot {
   display: inline-block; width: 2.6em; height: 0.74em; align-self: baseline;
-  background: #fff; overflow: hidden; position: relative; top: 0.02em;
+  overflow: hidden; position: relative; top: 0.02em;
 }
-.hero-slot img { width: 100%; height: 100%; object-fit: cover; }
+.hero-sig { display: block; width: 100%; height: 100%; }
 .hero-foot {
   display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gap);
   margin-top: 40px; align-items: end;
@@ -120,7 +129,7 @@ button, input, select { font: inherit; color: inherit; }
 .story-intro { grid-column: 9 / span 4; font-size: var(--t-lead); line-height: 1.4; }
 .story-body { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gap); margin-top: 72px; }
 .story-steps { grid-column: 1 / span 5; grid-row: 1; }
-.story-sticky { grid-column: 6 / span 7; grid-row: 1; position: sticky; top: 4svh; height: 92svh; display: flex; align-items: center; justify-content: center; background: var(--canvas); }
+.story-sticky { grid-column: 6 / span 7; grid-row: 1; position: sticky; top: 76px; height: calc(100svh - 92px); display: flex; align-items: center; justify-content: center; background: var(--canvas); }
 .story-doc { position: relative; height: 100%; aspect-ratio: 9 / 10; max-width: 100%; container-type: inline-size; overflow: hidden; }
 .story-doc img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .step { min-height: 78svh; display: flex; flex-direction: column; justify-content: center; gap: 20px; }
@@ -223,28 +232,24 @@ button, input, select { font: inherit; color: inherit; }
 .faq-list details[open] summary::after { transform: translateY(3px) rotate(-135deg); }
 .faq-list details p { margin-top: 14px; max-width: 48ch; }
 
-/* CTA: the sentence with a blank, on a field of Fold */
+/* CTA: two ways to get Recto, on a field of Fold */
 .cta { margin-top: clamp(72px, 9vw, 128px); background: var(--fold); padding-block: clamp(72px, 9vw, 128px); }
-.cta-sentence {
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2em 0.28em;
-  font-size: min(var(--t-head), 4.4vw); font-weight: 650; letter-spacing: -0.04em; line-height: 1.1;
-}
-.cta-select {
-  font-size: 1em; font-weight: 650; letter-spacing: -0.04em; line-height: 1.1;
-  height: 1.25em; padding: 0 1.1em 0 0.25em; border: 0; border-radius: 0; color: var(--ink);
-  background: var(--paper) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%231B1F3B' stroke-width='2'/%3E%3C/svg%3E") no-repeat right 0.3em center / 0.4em;
-  field-sizing: content; max-width: 100%;
-  appearance: none; -webkit-appearance: none; cursor: pointer;
-}
-.cta-button {
-  font-size: 1em; font-weight: 650; letter-spacing: -0.04em; line-height: 1.1; height: 1.25em; padding: 0 0.3em;
-  border: 0; border-radius: 0; background: var(--ink); color: var(--paper); cursor: pointer;
+.cta-choices { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 8px; margin-top: 48px; }
+.cta-choice {
+  grid-column: span 6; display: flex; flex-direction: column; gap: 14px; padding: clamp(24px, 3vw, 40px);
+  background: var(--paper); color: var(--ink); text-decoration: none;
   transition: background-color 160ms ease, color 160ms ease, transform 120ms var(--ease-out);
 }
-.cta-button:active { transform: scale(0.98); }
-@media (hover: hover) and (pointer: fine) { .cta-button:hover { background: var(--paper); color: var(--ink); } }
-.cta-note { margin-top: 28px; max-width: 42em; color: var(--ink); }
-.cta-note em { font-style: normal; font-weight: 600; }
+.cta-choice-main { background: var(--ink); color: var(--paper); }
+.cta-choice-name { font-size: var(--t-head); font-weight: 650; letter-spacing: -0.035em; line-height: 1; }
+.cta-choice-name::after { content: " ↓"; font-weight: 400; }
+.cta-choice-text { font-size: var(--t-body); max-width: 30em; }
+.cta-choice:active { transform: scale(0.99); }
+@media (hover: hover) and (pointer: fine) {
+  .cta-choice:hover { background: #fff; color: var(--ink); }
+  .cta-choice-main:hover { background: var(--ink-2); color: var(--paper); }
+}
+.cta-note { margin-top: 24px; color: var(--ink); }
 
 /* Footer: an invitation over the cropped logo, on Ink */
 .footer { background: var(--ink); color: var(--paper); overflow: hidden; padding-top: clamp(64px, 9vw, 128px); }
@@ -266,8 +271,10 @@ button, input, select { font: inherit; color: inherit; }
   .js .shutter img { transform: scale(1.12); transition: transform 1500ms cubic-bezier(0.16, 1, 0.3, 1) 200ms; }
   .js .shutter.is-in { clip-path: inset(0); }
   .js .shutter.is-in img { transform: none; }
-  .js .hero-slot img { transform: translateX(-12%); opacity: 0; transition: transform 1200ms var(--ease-out) 300ms, opacity 600ms ease 300ms; }
-  .js .hero-slot.is-in img { transform: none; opacity: 1; }
+  /* The signature writes itself: the stroke, then the underline. */
+  .js .hero-sig path { stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset 1600ms cubic-bezier(0.45, 0, 0.25, 1) 400ms; }
+  .js .hero-sig path + path { transition-duration: 600ms; transition-delay: 1900ms; }
+  .js .hero-slot.is-in .hero-sig path { stroke-dashoffset: 0; }
   .js .hero-dialog { opacity: 0; transform: translateY(48px); transition: opacity 700ms ease 900ms, transform 900ms var(--ease-out) 900ms; }
   .js .hero-dialog.is-in { opacity: 1; transform: none; }
   .marquee-track { animation: marquee 48s linear infinite; }
@@ -307,7 +314,7 @@ button, input, select { font: inherit; color: inherit; }
 /* Phone */
 @media (max-width: 600px) {
   .nav nav { display: none; }
-  .nav .button-small { margin-left: auto; }
+  .nav .nav-lang { margin-left: auto; }
   .nav-logo img { height: 34px; }
   .hero { padding-top: 32px; }
   .hero-line { font-size: 15.5vw; line-height: 0.92; flex-direction: column; align-items: flex-start; }
@@ -327,7 +334,6 @@ button, input, select { font: inherit; color: inherit; }
   .board-grid { grid-template-columns: 1fr; grid-template-areas: "pages" "find" "sketch" "doc" "export" "mark"; }
   .figure { display: block; }
   .figure dd { margin-top: 10px; }
-  .cta-sentence { font-size: 24px; letter-spacing: -0.02em; }
-  .cta-select, .cta-button { letter-spacing: -0.02em; height: 44px; }
+  .cta-choice { grid-column: 1 / -1; }
   .footer-legal { flex-direction: column; gap: 8px; }
 }

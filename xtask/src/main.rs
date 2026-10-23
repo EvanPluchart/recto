@@ -3,7 +3,7 @@
 //! * `fetch-pdfium`: downloads the pinned PDFium build for the host into `target/pdfium/`.
 //! * `gen-fixtures`: writes the committed fixtures in `tests/fixtures/`.
 //! * `gen-large [PAGES]`: writes `target/large.pdf` (500 pages by default) for performance checks.
-//! * `gen-demo`: writes `target/demo.pdf`, a made-up quote for screenshots (`demo.rs`).
+//! * `gen-demo`: writes `target/demo.pdf` and `target/demo-en.pdf`, a made-up quote for screenshots (`demo.rs`).
 //! * `fetch-ocr-models`: downloads the pinned OCR models into `target/ocr-models/` (decision 0004).
 //! * `dist [--no-build]`: builds a release and packages it for the host in `target/dist/` (`dist.rs`).
 

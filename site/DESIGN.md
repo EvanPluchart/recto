@@ -7,7 +7,8 @@ awesome-design-md). Read it before changing the page; keep the page and this fil
 
 A sheet of paper on a desk, set in large type. The page reads as a short series of sentences, each
 with its proof beside it: real screenshots of Recto on a made-up quote (`cargo xtask gen-demo`).
-Light only: there is no dark theme, on purpose. One idea carries it: the signature, the job people
+Light only: there is no dark theme, on purpose. French at the root, English in `en/`, same
+layout and assets. One idea carries it: the signature, the job people
 most often send a PDF to a website for, sits inside the headline, and further down the visitor signs
 the quote itself. The page alternates flat fields: paper, Fold behind the app, Ink behind the
 comparison, Fold again for the download, Ink for the footer.

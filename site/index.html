@@ -4,11 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Recto — lire, signer et modifier vos PDF, hors ligne</title>
-<meta name="description" content="Recto est un lecteur et éditeur de PDF gratuit pour Windows. Annoter, signer, remplir, réorganiser et caviarder sur votre ordinateur, sans compte et sans envoyer vos fichiers.">
+<meta name="description" content="Recto est un lecteur et éditeur de PDF gratuit pour Windows. Annoter, signer, remplir, réorganiser et censurer sur votre ordinateur, sans compte et sans envoyer vos fichiers.">
 <meta name="author" content="Evan Pluchart">
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#FAFAF9">
 <link rel="canonical" href="https://evanpluchart.github.io/recto/">
+<link rel="alternate" hreflang="fr" href="https://evanpluchart.github.io/recto/">
+<link rel="alternate" hreflang="en" href="https://evanpluchart.github.io/recto/en/">
+<link rel="alternate" hreflang="x-default" href="https://evanpluchart.github.io/recto/en/">
 <meta property="og:type" content="website">
 <meta property="og:locale" content="fr_FR">
 <meta property="og:title" content="Recto — vos PDF, signés hors ligne">
@@ -27,7 +30,8 @@
 <body>
 <a class="skip" href="#contenu">Aller au contenu</a>
 
-<header class="nav frame">
+<header class="nav-bar">
+<div class="nav frame">
   <a class="nav-logo" href="./" aria-label="Recto, accueil">
     <img src="logo.svg" alt="Recto" width="140" height="53">
   </a>
@@ -36,8 +40,11 @@
     <a href="#comparer">Comparer</a>
     <a href="#outils">Outils</a>
     <a href="#questions">Questions</a>
+    <a class="nav-github" href="https://github.com/EvanPluchart/recto"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
   </nav>
+  <a class="nav-lang" href="en/" hreflang="en" lang="en" aria-label="English version">EN</a>
   <a class="button button-small" href="#telecharger">Télécharger</a>
+</div>
 </header>
 
 <main id="contenu">
@@ -46,14 +53,14 @@
     <div class="frame">
       <h1 id="titre" class="hero-line">
         <span class="hero-word rise">Signez</span>
-        <span class="hero-slot"><img src="assets/hero-signature.png" alt="votre devis" width="660" height="184" fetchpriority="high"></span>
+        <span class="hero-slot"><svg class="hero-sig" viewBox="0 0 330 92" role="img" aria-label="votre devis"><g fill="none" stroke="#1C2B6B" stroke-linecap="round" stroke-linejoin="round"><path pathLength="1" stroke-width="3.2" d="M38 62 C30 40 46 14 62 18 C78 22 66 52 52 60 C44 65 48 70 58 64 C70 56 76 40 84 42 C92 44 82 62 90 63 C98 64 104 44 112 45 C120 46 110 64 120 64 C130 64 134 36 142 22 C146 15 150 20 146 34 C140 54 136 66 146 64 C156 62 160 46 168 47 C176 48 168 62 178 62 C190 62 196 42 206 44 C216 46 204 64 216 63 C228 62 232 48 242 50 C252 52 244 64 256 62 C266 60 272 52 280 50"/><path pathLength="1" stroke-width="2.4" d="M30 76 C90 68 170 66 250 70 C270 71 286 74 296 78"/></g></svg></span>
         <span class="hero-word rise">hors&nbsp;ligne.</span>
       </h1>
       <div class="hero-foot">
-        <p class="hero-lead rise">Recto est un lecteur et éditeur de PDF gratuit. Lire, annoter, signer, remplir, réorganiser et caviarder&nbsp;: tout se passe sur votre ordinateur, sans compte et sans envoyer vos fichiers.</p>
+        <p class="hero-lead rise">Recto est un lecteur et éditeur de PDF gratuit. Lire, annoter, signer, remplir, réorganiser et censurer&nbsp;: tout se passe sur votre ordinateur, sans compte et sans envoyer vos fichiers.</p>
         <div class="hero-action rise">
-          <a class="button" href="https://github.com/EvanPluchart/recto/releases/latest">Télécharger pour Windows</a>
-          <p class="note">Windows 10 et 11 · 21&nbsp;Mo · licence MIT</p>
+          <a class="button" href="https://github.com/EvanPluchart/recto/releases/latest" data-mac="Version macOS&nbsp;: bientôt" data-linux="Version Linux&nbsp;: bientôt" data-href="#questions">Télécharger pour Windows</a>
+          <p class="note" data-mac="Vous êtes sur Mac&nbsp;: la version macOS arrive bientôt. Recto existe déjà pour Windows&nbsp;10 et&nbsp;11." data-linux="Vous êtes sur Linux&nbsp;: une AppImage arrive bientôt. Recto existe déjà pour Windows&nbsp;10 et&nbsp;11.">Windows 10 et 11 · 21&nbsp;Mo · licence MIT</p>
         </div>
       </div>
     </div>
@@ -66,8 +73,8 @@
       </figure>
       <div class="marquee" aria-hidden="true">
         <div class="marquee-track">
-          <span>Lire · Annoter · Signer · Remplir · Fusionner · Découper · Pivoter · Caviarder · Filigraner · Compresser · Protéger · Reconnaître le texte ·&nbsp;</span>
-          <span>Lire · Annoter · Signer · Remplir · Fusionner · Découper · Pivoter · Caviarder · Filigraner · Compresser · Protéger · Reconnaître le texte ·&nbsp;</span>
+          <span>Lire · Annoter · Signer · Remplir · Fusionner · Découper · Pivoter · Censurer · Filigraner · Compresser · Protéger · Reconnaître le texte ·&nbsp;</span>
+          <span>Lire · Annoter · Signer · Remplir · Fusionner · Découper · Pivoter · Censurer · Filigraner · Compresser · Protéger · Reconnaître le texte ·&nbsp;</span>
         </div>
       </div>
     </div>
@@ -113,7 +120,7 @@
           <p>Tapez-le ici&nbsp;: il s'écrit sur le devis, dans le style et l'encre choisis. Rien n'est envoyé, même depuis cette page.</p>
           <div class="sign-panel" data-ui>
             <label for="sign-name">Votre nom</label>
-            <input id="sign-name" type="text" value="Camille Martin" maxlength="32" autocomplete="off" spellcheck="false">
+            <input id="sign-name" type="text" value="Camille Martin" placeholder="Votre nom" maxlength="32" autocomplete="off" spellcheck="false">
             <div class="sign-row" role="radiogroup" aria-label="Style">
               <button type="button" role="radio" aria-checked="true" data-font="Great Vibes" style="font-family: 'Great Vibes', cursive">Great Vibes</button>
               <button type="button" role="radio" aria-checked="false" data-font="Allura" style="font-family: 'Allura', cursive">Allura</button>
@@ -128,7 +135,7 @@
           </div>
         </li>
         <li class="step" data-step="4">
-          <h3 class="step-title">Caviardez avant de transférer.</h3>
+          <h3 class="step-title">Censurez avant de transférer.</h3>
           <p>Votre adresse n'a pas à suivre le devis partout. Sous le rectangle noir, le texte est retiré du fichier enregistré&nbsp;: on ne peut plus le copier ni le retrouver par recherche.</p>
         </li>
         <li class="step" data-step="5">
@@ -187,7 +194,7 @@
           <span role="cell" data-col="Abonnement">Oui</span>
         </div>
         <div class="compare-row" role="row">
-          <span role="rowheader">Caviarder pour de vrai</span>
+          <span role="rowheader">Censurer pour de vrai</span>
           <span role="cell" class="is-recto" data-col="Recto">Oui, le texte est retiré</span>
           <span role="cell" data-col="Site en ligne">Rarement sans payer</span>
           <span role="cell" data-col="Abonnement">Oui</span>
@@ -261,7 +268,7 @@
         <p>Recto est écrit pour les trois systèmes et les paquets (une app macOS et une AppImage) sont prêts à être construits, mais ils n'ont pas encore été testés. Ils viendront dans une prochaine version.</p>
       </details>
       <details>
-        <summary>Le caviardage est-il fiable&nbsp;?</summary>
+        <summary>La censure est-elle fiable&nbsp;?</summary>
         <p>Le texte, les images et les dessins sous un rectangle noir sont retirés du fichier, pas seulement cachés. Deux limites&nbsp;: un tracé qui dépasse de la zone reste sous le rectangle, et la structure d'accessibilité du document est supprimée. Relisez toujours le fichier exporté.</p>
       </details>
       <details>
@@ -273,17 +280,18 @@
 
   <section id="telecharger" class="cta" aria-labelledby="cta-title">
     <div class="frame">
-      <h2 id="cta-title" class="visually-hidden">Télécharger Recto</h2>
-      <form class="cta-sentence" action="https://github.com/EvanPluchart/recto/releases/latest" method="get">
-        <span>Recto pour Windows, en</span>
-        <label class="visually-hidden" for="cta-kind">Format</label>
-        <select id="cta-kind" class="cta-select">
-          <option value="setup">installateur</option>
-          <option value="zip">version portable</option>
-        </select>
-        <button class="cta-button" type="submit">Télécharger</button>
-      </form>
-      <p class="cta-note" id="cta-note">L'installateur ajoute Recto au menu Démarrer et à «&nbsp;Ouvrir avec&nbsp;» pour les PDF, sans remplacer votre lecteur par défaut. Fichier <em>Recto-…-windows-x64-setup.exe</em>, 21&nbsp;Mo.</p>
+      <h2 id="cta-title" class="head cta-title rise">Recto pour Windows.</h2>
+      <div class="cta-choices rise">
+        <a class="cta-choice cta-choice-main" href="https://github.com/EvanPluchart/recto/releases/latest">
+          <span class="cta-choice-name">Installateur</span>
+          <span class="cta-choice-text">Ajoute Recto au menu Démarrer et à «&nbsp;Ouvrir avec&nbsp;» pour les PDF, sans remplacer votre lecteur par défaut. Sans droits administrateur, 21&nbsp;Mo.</span>
+        </a>
+        <a class="cta-choice" href="https://github.com/EvanPluchart/recto/releases/latest">
+          <span class="cta-choice-name">Version portable</span>
+          <span class="cta-choice-text">Un dossier zip à décompresser où vous voulez, une clé USB par exemple. Ne touche pas au registre.</span>
+        </a>
+      </div>
+      <p class="cta-note rise">Windows 10 et 11, 64 bits. macOS et Linux viendront dans une prochaine version.</p>
     </div>
   </section>
 
@@ -296,6 +304,7 @@
       <a class="button" href="https://evanpluchart.fr">Écrire à Evan</a>
     </div>
     <ul class="footer-links">
+      <li><a href="https://github.com/EvanPluchart/recto">Le code sur GitHub</a></li>
       <li><a href="https://evanpluchart.fr">evanpluchart.fr</a></li>
       <li><a href="https://evanpluchart.github.io/windows-finder/">Windows Finder, un autre projet</a></li>
       <li><a href="#telecharger">Télécharger Recto</a></li>

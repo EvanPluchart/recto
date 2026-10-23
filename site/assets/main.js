@@ -6,6 +6,37 @@
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var observe = "IntersectionObserver" in window;
 
+  // macOS and Linux visitors: say their version is coming instead of offering a Windows download.
+  var platform = ((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "").toLowerCase();
+  var os = /mac/.test(platform) && !/iphone|ipad/.test(navigator.userAgent.toLowerCase()) ? "mac"
+    : /linux/.test(platform) && !/android/.test(navigator.userAgent.toLowerCase()) ? "linux" : null;
+  if (os) {
+    document.querySelectorAll("[data-" + os + "]").forEach(function (el) {
+      el.innerHTML = el.getAttribute("data-" + os);
+      if (el.hasAttribute("data-href")) el.setAttribute("href", el.getAttribute("data-href"));
+    });
+  }
+
+  // Header: compact once the page moves, hidden while reading down, back on any scroll up.
+  var bar = document.querySelector(".nav-bar");
+  var lastY = window.scrollY;
+  var ticking = false;
+  function onScroll() {
+    ticking = false;
+    var y = window.scrollY;
+    bar.classList.toggle("is-scrolled", y > 24);
+    if (y > 240 && y > lastY + 4) bar.classList.add("is-hidden");
+    else if (y < lastY - 4 || y <= 240) bar.classList.remove("is-hidden");
+    lastY = y;
+  }
+  if (bar) {
+    window.addEventListener("scroll", function () {
+      if (!ticking) { ticking = true; requestAnimationFrame(onScroll); }
+    }, { passive: true });
+    // Keyboard users always find it: focus inside shows it.
+    bar.addEventListener("focusin", function () { bar.classList.remove("is-hidden"); });
+  }
+
   // Story: the step in the middle of the screen sets what the quote shows (every earlier step too).
   var doc = document.querySelector(".story-doc");
   var steps = document.querySelectorAll(".step");
@@ -48,7 +79,7 @@
     group.querySelectorAll("[role=radio]").forEach(function (b) { b.setAttribute("aria-checked", b === button ? "true" : "false"); });
   }
   if (name && signature) {
-    name.addEventListener("input", function () { signature.textContent = name.value.trim() || "Votre nom"; });
+    name.addEventListener("input", function () { signature.textContent = name.value.trim() || name.placeholder; });
     document.querySelectorAll(".sign-row").forEach(function (group) {
       group.addEventListener("click", function (event) {
         var button = event.target.closest("[role=radio]");
@@ -78,15 +109,6 @@
       });
     });
   }
-
-  // Download: what the chosen file is.
-  var kind = document.getElementById("cta-kind");
-  var note = document.getElementById("cta-note");
-  var notes = {
-    setup: "L'installateur ajoute Recto au menu Démarrer et à « Ouvrir avec » pour les PDF, sans remplacer votre lecteur par défaut. Fichier <em>Recto-…-windows-x64-setup.exe</em>, 21 Mo.",
-    zip: "La version portable se décompresse où vous voulez, une clé USB par exemple, et ne touche pas au registre. Fichier <em>Recto-…-windows-x64.zip</em>."
-  };
-  if (kind && note) kind.addEventListener("change", function () { note.innerHTML = notes[kind.value]; });
 
   // Counters roll up once.
   function count(el) {
