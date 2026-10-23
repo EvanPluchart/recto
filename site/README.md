@@ -1,13 +1,15 @@
 # Landing page
 
-A static page for evanpluchart.fr (in French): `index.html`, the logo and icon from `assets/brand/`, and `screenshot.png` (taken from the app on the generated `tests/fixtures/sample.pdf`).
+The static page for GitHub Pages, in French: `index.html`, `assets/` (stylesheet, script, fonts,
+screenshots, social image), the logo and favicons. No build step, no framework, no third-party
+requests: fonts are self-hosted (SIL OFL, licences in `assets/fonts/`).
 
-It is not published from this repository. To put it online, copy this folder to the site and add a `downloads/` folder next to `index.html` with the release files, under stable names:
-
-| Link | File from `cargo xtask dist` or the Release workflow |
-|---|---|
-| `downloads/Recto-windows-x64-setup.exe` | `Recto-VERSION-windows-x64-setup.exe` |
-| `downloads/Recto-macos.dmg` | `Recto-VERSION-macos.dmg` |
-| `downloads/Recto-x86_64.AppImage` | `Recto-VERSION-x86_64.AppImage` |
-
-The repository is private, so links to its GitHub releases would not work for visitors: the files are served by the site itself.
+* Design system and art direction: `DESIGN.md`.
+* Screenshots are the app on `target/demo.pdf` (`cargo xtask gen-demo`, a made-up quote), taken with
+  the `--apply` test flags and cropped to the window content.
+* Publish: run the Pages workflow by hand (`.github/workflows/pages.yml`) once Pages is enabled with
+  "GitHub Actions" as its source. The page expects to live at `https://evanpluchart.github.io/recto/`
+  (canonical and social links); every asset path is relative.
+* Downloads point to `https://github.com/EvanPluchart/recto/releases/latest`, which only works for
+  visitors once the repository is public and a release is published. macOS and Linux are described
+  as coming later until their packages have been run.
