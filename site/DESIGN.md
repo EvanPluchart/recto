@@ -8,7 +8,14 @@ awesome-design-md). Read it before changing the page; keep the page and this fil
 A sheet of paper on a desk, set in large type. The page reads as a short series of sentences, each
 with its proof beside it: real screenshots of Recto on a made-up quote (`cargo xtask gen-demo`).
 Light only: there is no dark theme, on purpose. One idea carries it: the signature, the job people
-most often send a PDF to a website for, sits inside the headline and can be tried on the page.
+most often send a PDF to a website for, sits inside the headline, and further down the visitor signs
+the quote itself. The page alternates flat fields: paper, Fold behind the app, Ink behind the
+comparison, Fold again for the download, Ink for the footer.
+
+Sections: hero (sentence + the app window and its signature dialog on Fold, a marquee of verbs);
+the story (the quote pinned on desktop while six steps pass: read, edit, highlight, sign with the
+visitor's name, redact, save; on small screens the quote plays the steps by itself); comparison;
+a board of interface close-ups; three figures; questions; the download sentence; the footer.
 
 Art direction dealt by taste-skill v2: "The sentence is the layout" (seed 1513397970), with the
 features section redrawn to "Comparison set as text" because the page's main claim is a comparison
@@ -47,10 +54,13 @@ SIL OFL); they are product content, not page typography.
 
 * **Button**: square corners (radius 0), 52px tall, Fold fill, Ink text, 600 weight. Hover: Ink fill,
   Paper text. Press: scale 0.97. Focus: 3px Ink outline offset 3px.
-* **Navigation**: the logo, three text links, one button. No bar, no blur.
+* **Navigation**: the logo, four text links, one button. No bar, no blur.
 * **Screenshots**: square corners, no shadow, on `--canvas`. Every image has `width`, `height`, `alt`.
-* **Table**: no rules; rows separated by a tone step; the featured column is one Ink block.
+* **Table**: no rules; rows separated by a tone step; the featured column is one Fold block with Ink text, on the Ink field.
 * **FAQ**: `<details>`, no rules, open row on a `--surface` tile.
+* **Story overlays**: drawn over the real screenshot in its own pixel coordinates (900 × 1000): a
+  highlight, the mention and signature (SVG text revealed by a growing clip rectangle), the redaction
+  bar, the save toast. Only the dialog and the toast carry a shadow: they float in the app too.
 
 ## 5. Layout
 
@@ -60,7 +70,8 @@ neighbours.
 
 ## 6. Depth and elevation
 
-None. Surfaces differ by a step in tone. No shadows, gradients, glass or glows.
+None. Surfaces differ by a step in tone. No gradients, glass or glows; shadows only on what floats in
+the app itself (the signature dialog, the save toast).
 
 ## 7. Do and don't
 
@@ -72,11 +83,13 @@ invented proof (users, quotes, press), a dark theme.
 ## 8. Responsive behaviour
 
 Breakpoints at 900px and 600px. On a phone the hero signature leaves the line and sits between the
-two halves of the sentence; the comparison table turns into one block per row; the stage slider
-shows the screenshot first.
+two halves of the sentence; the comparison table turns into one block per row; the story quote is not
+pinned and plays its steps by itself while on screen.
 
 ## 9. Motion
 
-The big screenshot opens with a shutter (clip-path, 1.1s). Section parts rise 24px and fade in,
-staggered by 80ms, once. Stage changes crossfade in 200ms. All of it is off under
+The app window opens with a shutter (clip-path, 1.1s) and drifts as it leaves; the signature dialog
+rises after it. The verbs marquee runs at 48s a loop and pauses on hover. Section parts rise 24px and
+fade in, staggered by 80ms, once. Story overlays sweep, write and slide in as their step arrives.
+The 21 Mo figure rolls up. All of it is off under
 `prefers-reduced-motion`, and nothing is hidden when script does not run.

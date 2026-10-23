@@ -7,7 +7,7 @@
 <meta name="description" content="Recto est un lecteur et éditeur de PDF gratuit pour Windows. Annoter, signer, remplir, réorganiser et caviarder sur votre ordinateur, sans compte et sans envoyer vos fichiers.">
 <meta name="author" content="Evan Pluchart">
 <meta name="color-scheme" content="light">
-<meta name="theme-color" content="#FBFAF7">
+<meta name="theme-color" content="#FAFAF9">
 <link rel="canonical" href="https://evanpluchart.github.io/recto/">
 <meta property="og:type" content="website">
 <meta property="og:locale" content="fr_FR">
@@ -32,8 +32,9 @@
     <img src="logo.svg" alt="Recto" width="140" height="53">
   </a>
   <nav aria-label="Sections">
+    <a href="#en-pratique">En pratique</a>
     <a href="#comparer">Comparer</a>
-    <a href="#etapes">En pratique</a>
+    <a href="#outils">Outils</a>
     <a href="#questions">Questions</a>
   </nav>
   <a class="button button-small" href="#telecharger">Télécharger</a>
@@ -41,154 +42,203 @@
 
 <main id="contenu">
 
-  <section class="hero frame" aria-labelledby="titre">
-    <h1 id="titre" class="hero-line rise">
-      <span class="hero-word">Signez</span>
-      <span class="hero-slot"><img src="assets/hero-signature.png" alt="votre devis" width="660" height="184" fetchpriority="high"></span>
-      <span class="hero-word">hors&nbsp;ligne.</span>
-    </h1>
-    <div class="hero-foot">
-      <p class="hero-lead rise">Recto est un lecteur et éditeur de PDF gratuit. Lire, annoter, signer, remplir, réorganiser et caviarder&nbsp;: tout se passe sur votre ordinateur, sans compte et sans envoyer vos fichiers.</p>
-      <div class="hero-action rise">
-        <a class="button" href="https://github.com/EvanPluchart/recto/releases/latest">Télécharger pour Windows</a>
-        <p class="note">Windows 10 et 11 · 21&nbsp;Mo · licence MIT</p>
+  <section class="hero" aria-labelledby="titre">
+    <div class="frame">
+      <h1 id="titre" class="hero-line">
+        <span class="hero-word rise">Signez</span>
+        <span class="hero-slot"><img src="assets/hero-signature.png" alt="votre devis" width="660" height="184" fetchpriority="high"></span>
+        <span class="hero-word rise">hors&nbsp;ligne.</span>
+      </h1>
+      <div class="hero-foot">
+        <p class="hero-lead rise">Recto est un lecteur et éditeur de PDF gratuit. Lire, annoter, signer, remplir, réorganiser et caviarder&nbsp;: tout se passe sur votre ordinateur, sans compte et sans envoyer vos fichiers.</p>
+        <div class="hero-action rise">
+          <a class="button" href="https://github.com/EvanPluchart/recto/releases/latest">Télécharger pour Windows</a>
+          <p class="note">Windows 10 et 11 · 21&nbsp;Mo · licence MIT</p>
+        </div>
+      </div>
+    </div>
+    <div class="hero-stage">
+      <figure class="hero-window shutter" data-ui>
+        <img src="assets/app-edit.png" alt="Recto en mode édition&nbsp;: la barre d'outils, les miniatures des trois pages d'un devis et la première page ouverte." width="900" height="1000">
+      </figure>
+      <figure class="hero-dialog" data-ui>
+        <img src="assets/tile-signature.png" alt="La fenêtre Signature de Recto&nbsp;: un champ pour le nom, trois encres, quatre styles et une zone pour dessiner." width="472" height="512">
+      </figure>
+      <div class="marquee" aria-hidden="true">
+        <div class="marquee-track">
+          <span>Lire · Annoter · Signer · Remplir · Fusionner · Découper · Pivoter · Caviarder · Filigraner · Compresser · Protéger · Reconnaître le texte ·&nbsp;</span>
+          <span>Lire · Annoter · Signer · Remplir · Fusionner · Découper · Pivoter · Caviarder · Filigraner · Compresser · Protéger · Reconnaître le texte ·&nbsp;</span>
+        </div>
       </div>
     </div>
   </section>
 
-  <figure class="window" aria-labelledby="window-caption">
-    <div class="window-inner shutter">
-      <img src="assets/app-sign.png" alt="Recto en mode édition&nbsp;: un devis de menuiserie avec la mention « Bon pour accord le 16/10/2026 », la signature Camille Martin et le délai de fabrication surligné en jaune." width="900" height="1000">
+  <section id="en-pratique" class="story" aria-labelledby="story-title">
+    <div class="frame story-head">
+      <h2 id="story-title" class="head rise">Un devis, du mail à la signature.</h2>
+      <p class="story-intro rise">Un artisan vous envoie son devis en PDF. Voici ce qui se passe dans Recto, étape par étape, sans quitter votre ordinateur.</p>
     </div>
-    <figcaption id="window-caption" class="frame note">Un devis signé dans Recto&nbsp;: la mention ajoutée en texte, la signature tapée, le délai surligné. Le fichier n'a pas quitté le disque.</figcaption>
-  </figure>
-
-  <section class="try frame" aria-labelledby="try-title">
-    <h2 id="try-title" class="head rise">Essayez votre signature.</h2>
-    <div class="try-field rise" data-ui>
-      <label class="visually-hidden" for="try-name">Votre nom</label>
-      <input id="try-name" class="try-input" type="text" value="Camille Martin" maxlength="40" autocomplete="off" spellcheck="false">
-    </div>
-    <ul class="try-styles rise" data-ui aria-label="Les quatre styles de signature de Recto">
-      <li><span class="try-sig" style="font-family: 'Great Vibes', cursive">Camille Martin</span><span class="try-name">Great Vibes</span></li>
-      <li><span class="try-sig" style="font-family: 'Allura', cursive">Camille Martin</span><span class="try-name">Allura</span></li>
-      <li><span class="try-sig" style="font-family: 'Sacramento', cursive">Camille Martin</span><span class="try-name">Sacramento</span></li>
-      <li><span class="try-sig" style="font-family: 'Dancing Script', cursive">Camille Martin</span><span class="try-name">Dancing Script</span></li>
-    </ul>
-    <div class="try-foot rise">
-      <div class="try-examples" role="group" aria-label="Exemples">
-        <button type="button" data-fill="C. Martin">C. Martin</button>
-        <button type="button" data-fill="Lu et approuvé">Lu et approuvé</button>
-        <button type="button" data-fill="Bon pour accord">Bon pour accord</button>
+    <div class="frame story-body">
+      <div class="story-sticky">
+        <div class="story-doc" data-ui>
+          <img class="doc-read" src="assets/app-read.png" alt="Le devis ouvert dans Recto." width="900" height="1000" loading="lazy">
+          <img class="doc-edit" src="assets/app-editbase.png" alt="" width="900" height="1000" loading="lazy">
+          <span class="ov ov-hl" aria-hidden="true"></span>
+          <svg class="ov ov-ink" viewBox="0 0 900 1000" aria-hidden="true" focusable="false">
+            <defs><clipPath id="write"><rect class="write" x="0" y="0" width="900" height="1000"/></clipPath></defs>
+            <g clip-path="url(#write)">
+              <text class="ov-mention" x="221" y="672">Bon pour accord le 16/10/2026</text>
+              <text class="ov-sig" x="229" y="720">Camille Martin</text>
+            </g>
+          </svg>
+          <span class="ov ov-redact" aria-hidden="true"></span>
+          <span class="ov ov-toast" aria-hidden="true">Enregistré&nbsp;: devis-2026-118.pdf</span>
+        </div>
       </div>
-      <p class="try-note">Ce sont les quatre styles proposés par Recto pour une signature tapée. Elle peut aussi être tracée à la souris ou importée en image, puis gardée sur votre ordinateur pour la prochaine fois. Rien de ce que vous tapez ici n'est envoyé.</p>
-    </div>
-  </section>
-
-  <section id="comparer" class="compare frame" aria-labelledby="compare-title">
-    <h2 id="compare-title" class="head rise">Sans envoi, sans quota.</h2>
-    <div class="compare-table rise" role="table" aria-label="Recto comparé aux autres façons de modifier un PDF">
-      <div class="compare-row compare-top" role="row">
-        <span role="columnheader"><span class="visually-hidden">Question</span></span>
-        <span role="columnheader" class="is-recto">Recto</span>
-        <span role="columnheader">Site en ligne gratuit</span>
-        <span role="columnheader">Logiciel sous abonnement</span>
-      </div>
-      <div class="compare-row" role="row">
-        <span role="rowheader">Où vont vos fichiers</span>
-        <span role="cell" class="is-recto" data-col="Recto">Nulle part, ils restent sur votre disque</span>
-        <span role="cell" data-col="Site en ligne gratuit">Envoyés sur un serveur</span>
-        <span role="cell" data-col="Logiciel sous abonnement">Sur votre disque, parfois synchronisés</span>
-      </div>
-      <div class="compare-row" role="row">
-        <span role="rowheader">Compte à créer</span>
-        <span role="cell" class="is-recto" data-col="Recto">Aucun</span>
-        <span role="cell" data-col="Site en ligne gratuit">Souvent demandé</span>
-        <span role="cell" data-col="Logiciel sous abonnement">Obligatoire</span>
-      </div>
-      <div class="compare-row" role="row">
-        <span role="rowheader">Limite d'usage</span>
-        <span role="cell" class="is-recto" data-col="Recto">Aucune</span>
-        <span role="cell" data-col="Site en ligne gratuit">Souvent quelques tâches par jour</span>
-        <span role="cell" data-col="Logiciel sous abonnement">Aucune</span>
-      </div>
-      <div class="compare-row" role="row">
-        <span role="rowheader">Prix</span>
-        <span role="cell" class="is-recto" data-col="Recto">Gratuit</span>
-        <span role="cell" data-col="Site en ligne gratuit">Gratuit avec limites</span>
-        <span role="cell" data-col="Logiciel sous abonnement">Chaque mois</span>
-      </div>
-      <div class="compare-row" role="row">
-        <span role="rowheader">Sans connexion</span>
-        <span role="cell" class="is-recto" data-col="Recto">Oui, toujours</span>
-        <span role="cell" data-col="Site en ligne gratuit">Non</span>
-        <span role="cell" data-col="Logiciel sous abonnement">Oui, en grande partie</span>
-      </div>
-      <div class="compare-row" role="row">
-        <span role="rowheader">Signer et remplir</span>
-        <span role="cell" class="is-recto" data-col="Recto">Oui</span>
-        <span role="cell" data-col="Site en ligne gratuit">Oui</span>
-        <span role="cell" data-col="Logiciel sous abonnement">Oui</span>
-      </div>
-      <div class="compare-row" role="row">
-        <span role="rowheader">Caviarder pour de vrai</span>
-        <span role="cell" class="is-recto" data-col="Recto">Oui, le texte est retiré</span>
-        <span role="cell" data-col="Site en ligne gratuit">Rarement sans payer</span>
-        <span role="cell" data-col="Logiciel sous abonnement">Oui</span>
-      </div>
-      <div class="compare-row" role="row">
-        <span role="rowheader">Modifier le texte d'origine</span>
-        <span role="cell" class="is-recto" data-col="Recto">Oui, en bêta</span>
-        <span role="cell" data-col="Site en ligne gratuit">Parfois</span>
-        <span role="cell" data-col="Logiciel sous abonnement">Oui</span>
-      </div>
-    </div>
-  </section>
-
-  <section id="etapes" class="stages" aria-labelledby="stage-title">
-    <div class="stages-text">
-      <h2 id="stage-title" class="head stage-clause" aria-live="polite">D'abord, le PDF s'ouvre en lecture.</h2>
-      <p class="stage-detail">Comme une visionneuse&nbsp;: on lit, on cherche, on copie, on imprime. Rien ne bouge par erreur.</p>
-    </div>
-    <div class="stages-picture" data-ui>
-      <img class="stage-img is-current" src="assets/app-read.png" alt="Recto en lecture&nbsp;: le devis, la barre du haut et le bouton Modifier." width="900" height="1000" loading="lazy">
-      <img class="stage-img" src="assets/app-edit.png" alt="Recto en mode édition&nbsp;: la barre d'outils et les miniatures des trois pages." width="900" height="1000" loading="lazy">
-      <img class="stage-img" src="assets/app-sign.png" alt="Le devis avec une mention, une signature et un surlignage." width="900" height="1000" loading="lazy">
-      <img class="stage-img" src="assets/app-redact.png" alt="Le nom et l'adresse du client recouverts d'un rectangle noir de caviardage." width="900" height="1000" loading="lazy">
-    </div>
-    <div class="stages-control">
-      <label class="visually-hidden" for="stage-range">Étape</label>
-      <input id="stage-range" type="range" min="0" max="3" step="1" value="0" aria-valuetext="Lire">
-      <ol class="stage-names">
-        <li><button type="button" data-stage="0" aria-current="step">Lire</button></li>
-        <li><button type="button" data-stage="1">Modifier</button></li>
-        <li><button type="button" data-stage="2">Signer</button></li>
-        <li><button type="button" data-stage="3">Caviarder</button></li>
+      <ol class="story-steps">
+        <li class="step" data-step="0">
+          <h3 class="step-title">Il s'ouvre en lecture.</h3>
+          <p>Comme une visionneuse&nbsp;: on lit, on zoome, on cherche un mot, on imprime. Rien ne bouge par erreur, et un double-clic suffit à ouvrir un PDF depuis l'Explorateur.</p>
+        </li>
+        <li class="step" data-step="1">
+          <h3 class="step-title">Modifier sort les outils.</h3>
+          <p>Une barre d'outils et les miniatures des pages apparaissent. Chaque outil a sa lettre au clavier&nbsp;: T pour le texte, H pour surligner, S pour signer.</p>
+        </li>
+        <li class="step" data-step="2">
+          <h3 class="step-title">Surlignez ce qui compte.</h3>
+          <p>Le délai de fabrication, en jaune. Surlignage, soulignement, formes, flèches et notes restent de vraies annotations PDF, lisibles dans les autres logiciels.</p>
+        </li>
+        <li class="step" data-step="3">
+          <h3 class="step-title">Signez, avec votre nom.</h3>
+          <p>Tapez-le ici&nbsp;: il s'écrit sur le devis, dans le style et l'encre choisis. Rien n'est envoyé, même depuis cette page.</p>
+          <div class="sign-panel" data-ui>
+            <label for="sign-name">Votre nom</label>
+            <input id="sign-name" type="text" value="Camille Martin" maxlength="32" autocomplete="off" spellcheck="false">
+            <div class="sign-row" role="radiogroup" aria-label="Style">
+              <button type="button" role="radio" aria-checked="true" data-font="Great Vibes" style="font-family: 'Great Vibes', cursive">Great Vibes</button>
+              <button type="button" role="radio" aria-checked="false" data-font="Allura" style="font-family: 'Allura', cursive">Allura</button>
+              <button type="button" role="radio" aria-checked="false" data-font="Sacramento" style="font-family: 'Sacramento', cursive">Sacramento</button>
+              <button type="button" role="radio" aria-checked="false" data-font="Dancing Script" style="font-family: 'Dancing Script', cursive">Dancing</button>
+            </div>
+            <div class="sign-row sign-inks" role="radiogroup" aria-label="Encre">
+              <button type="button" role="radio" aria-checked="false" data-ink="#121217" style="--swatch: #121217"><span class="visually-hidden">Noire</span></button>
+              <button type="button" role="radio" aria-checked="true" data-ink="#1C2B6B" style="--swatch: #1C2B6B"><span class="visually-hidden">Bleu nuit</span></button>
+              <button type="button" role="radio" aria-checked="false" data-ink="#1F4FD1" style="--swatch: #1F4FD1"><span class="visually-hidden">Bleue</span></button>
+            </div>
+          </div>
+        </li>
+        <li class="step" data-step="4">
+          <h3 class="step-title">Caviardez avant de transférer.</h3>
+          <p>Votre adresse n'a pas à suivre le devis partout. Sous le rectangle noir, le texte est retiré du fichier enregistré&nbsp;: on ne peut plus le copier ni le retrouver par recherche.</p>
+        </li>
+        <li class="step" data-step="5">
+          <h3 class="step-title">Enregistrez, c'est fini.</h3>
+          <p>Le fichier est réécrit d'un coup, jamais à moitié. Il est resté sur votre disque du début à la fin, sans compte, sans quota, sans connexion.</p>
+        </li>
       </ol>
     </div>
   </section>
 
-  <section class="list frame" aria-labelledby="list-title">
-    <h2 id="list-title" class="head list-title rise"><span>Tout ce que Recto</span> sait faire, sur une page.</h2>
-    <div class="list-body">
-      <img class="list-picture rise" src="assets/app-sketch.png" alt="La page du croquis, annotée d'une flèche et de la note « Prévoir 2 cm de jeu au plafond »." width="640" height="800" loading="lazy">
-      <dl class="list-table rise">
-        <div><dt>Lire</dt><dd>Recherche et copie du texte</dd><dd>Ctrl&nbsp;F</dd></div>
-        <div><dt>Lire</dt><dd>Miniatures, signets, impression</dd><dd>Ctrl&nbsp;P</dd></div>
-        <div><dt>Lire</dt><dd>Formulaires remplis sans passer en édition</dd><dd>Clic</dd></div>
-        <div class="group"><dt>Annoter</dt><dd>Texte, surlignage, souligné, barré</dd><dd>T&nbsp;·&nbsp;H&nbsp;·&nbsp;U</dd></div>
-        <div><dt>Annoter</dt><dd>Formes, flèches, main levée, tampons</dd><dd>R&nbsp;·&nbsp;A&nbsp;·&nbsp;D&nbsp;·&nbsp;P</dd></div>
-        <div><dt>Annoter</dt><dd>Signature tracée, tapée ou en image</dd><dd>S</dd></div>
-        <div><dt>Annoter</dt><dd>Annotations déjà présentes, déplacées ou supprimées</dd><dd>V</dd></div>
-        <div class="group"><dt>Organiser</dt><dd>Fusionner, découper, extraire des pages</dd><dd>Menu Pages</dd></div>
-        <div><dt>Organiser</dt><dd>Pivoter, réordonner, supprimer, recadrer</dd><dd>Glisser</dd></div>
-        <div class="group"><dt>Protéger</dt><dd>Caviardage réel, effacement en blanc</dd><dd>Contenu retiré</dd></div>
-        <div><dt>Protéger</dt><dd>Mot de passe, métadonnées, compression</dd><dd>AES-256</dd></div>
-        <div><dt>Protéger</dt><dd>Filigrane, numéros de page, en-têtes</dd><dd>Menu Document</dd></div>
-        <div class="group"><dt>Corriger</dt><dd>Modifier le texte d'origine du PDF</dd><dd>Bêta</dd></div>
-        <div><dt>Corriger</dt><dd>Rechercher et remplacer, reconnaissance de texte</dd><dd>OCR</dd></div>
-      </dl>
+  <section id="comparer" class="compare" aria-labelledby="compare-title">
+    <div class="frame">
+      <h2 id="compare-title" class="head rise">Sans envoi, sans quota.</h2>
+      <p class="compare-intro rise">Ce que change un logiciel installé, face aux deux façons habituelles de modifier un PDF.</p>
+      <div class="compare-table rise" role="table" aria-label="Recto comparé aux autres façons de modifier un PDF">
+        <div class="compare-row compare-top" role="row">
+          <span role="columnheader"><span class="visually-hidden">Question</span></span>
+          <span role="columnheader" class="is-recto">Recto</span>
+          <span role="columnheader">Site en ligne gratuit</span>
+          <span role="columnheader">Logiciel sous abonnement</span>
+        </div>
+        <div class="compare-row" role="row">
+          <span role="rowheader">Où vont vos fichiers</span>
+          <span role="cell" class="is-recto" data-col="Recto">Nulle part, ils restent sur votre disque</span>
+          <span role="cell" data-col="Site en ligne">Envoyés sur un serveur</span>
+          <span role="cell" data-col="Abonnement">Sur votre disque, parfois synchronisés</span>
+        </div>
+        <div class="compare-row" role="row">
+          <span role="rowheader">Compte à créer</span>
+          <span role="cell" class="is-recto" data-col="Recto">Aucun</span>
+          <span role="cell" data-col="Site en ligne">Souvent demandé</span>
+          <span role="cell" data-col="Abonnement">Obligatoire</span>
+        </div>
+        <div class="compare-row" role="row">
+          <span role="rowheader">Limite d'usage</span>
+          <span role="cell" class="is-recto" data-col="Recto">Aucune</span>
+          <span role="cell" data-col="Site en ligne">Souvent quelques tâches par jour</span>
+          <span role="cell" data-col="Abonnement">Aucune</span>
+        </div>
+        <div class="compare-row" role="row">
+          <span role="rowheader">Prix</span>
+          <span role="cell" class="is-recto" data-col="Recto">Gratuit</span>
+          <span role="cell" data-col="Site en ligne">Gratuit avec limites</span>
+          <span role="cell" data-col="Abonnement">Chaque mois</span>
+        </div>
+        <div class="compare-row" role="row">
+          <span role="rowheader">Sans connexion</span>
+          <span role="cell" class="is-recto" data-col="Recto">Oui, toujours</span>
+          <span role="cell" data-col="Site en ligne">Non</span>
+          <span role="cell" data-col="Abonnement">Oui, en grande partie</span>
+        </div>
+        <div class="compare-row" role="row">
+          <span role="rowheader">Signer et remplir</span>
+          <span role="cell" class="is-recto" data-col="Recto">Oui</span>
+          <span role="cell" data-col="Site en ligne">Oui</span>
+          <span role="cell" data-col="Abonnement">Oui</span>
+        </div>
+        <div class="compare-row" role="row">
+          <span role="rowheader">Caviarder pour de vrai</span>
+          <span role="cell" class="is-recto" data-col="Recto">Oui, le texte est retiré</span>
+          <span role="cell" data-col="Site en ligne">Rarement sans payer</span>
+          <span role="cell" data-col="Abonnement">Oui</span>
+        </div>
+        <div class="compare-row" role="row">
+          <span role="rowheader">Modifier le texte d'origine</span>
+          <span role="cell" class="is-recto" data-col="Recto">Oui, en bêta</span>
+          <span role="cell" data-col="Site en ligne">Parfois</span>
+          <span role="cell" data-col="Abonnement">Oui</span>
+        </div>
+      </div>
     </div>
+  </section>
+
+  <section id="outils" class="board frame" aria-labelledby="board-title">
+    <h2 id="board-title" class="head rise">Le reste de la boîte à outils.</h2>
+    <div class="board-grid">
+      <figure class="tile tile-pages rise" data-ui>
+        <div class="tile-shot"><img src="assets/tile-pages.png" alt="Le menu Pages ouvert à côté des miniatures&nbsp;: pivoter, supprimer, page blanche, insérer un fichier, extraire, découper." width="682" height="409" loading="lazy"></div>
+        <figcaption><strong>Organiser les pages.</strong> Pivoter, supprimer, réordonner en glissant les miniatures, fusionner un autre PDF, extraire ou découper.</figcaption>
+      </figure>
+      <figure class="tile tile-find rise" data-ui>
+        <div class="tile-shot"><img src="assets/tile-find.png" alt="La recherche du mot chêne&nbsp;: quatre résultats surlignés sur la page." width="748" height="346" loading="lazy"></div>
+        <figcaption><strong>Chercher et copier.</strong> Tous les résultats surlignés, même sur un document de 500&nbsp;pages.</figcaption>
+      </figure>
+      <figure class="tile tile-document rise" data-ui>
+        <div class="tile-shot"><img src="assets/tile-document.png" alt="Le menu Document&nbsp;: imprimer, enregistrer sous, exporter, filigrane, numéros de page, en-tête ou pied, propriétés, reconnaître le texte." width="365" height="311" loading="lazy"></div>
+        <figcaption><strong>Préparer l'envoi.</strong> Numéros de page, en-têtes, propriétés, impression.</figcaption>
+      </figure>
+      <figure class="tile tile-export rise" data-ui>
+        <div class="tile-shot"><img src="assets/tile-export.png" alt="La fenêtre Exporter&nbsp;: compresser les images, niveaux de gris, protéger par mot de passe." width="444" height="250" loading="lazy"></div>
+        <figcaption><strong>Alléger, protéger.</strong> Compression des images, niveaux de gris, mot de passe AES-256.</figcaption>
+      </figure>
+      <figure class="tile tile-watermark rise" data-ui>
+        <div class="tile-shot"><img src="assets/tile-watermark.png" alt="Le devis marqué d'un filigrane COPIE en diagonale." width="520" height="260" loading="lazy"></div>
+        <figcaption><strong>Marquer une copie.</strong> Un filigrane sur toutes les pages, en une fois.</figcaption>
+      </figure>
+      <figure class="tile tile-sketch rise" data-ui>
+        <div class="tile-shot"><img src="assets/app-sketch.png" alt="La page du croquis, annotée d'une flèche et de la note Prévoir 2 cm de jeu au plafond." width="640" height="800" loading="lazy"></div>
+        <figcaption><strong>Annoter un plan.</strong> Flèches, formes, texte et dessin à main levée, déplaçables après coup.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="figures frame" aria-labelledby="figures-title">
+    <h2 id="figures-title" class="head rise">Petit, local, sans inscription.</h2>
+    <dl class="figures-list">
+      <div class="figure rise"><dt><span class="count" data-to="21">21</span>&nbsp;Mo</dt><dd>à installer, PDFium et la reconnaissance de texte compris.</dd></div>
+      <div class="figure rise"><dt><span class="count" data-to="0">0</span>&nbsp;compte</dt><dd>à créer. Recto s'ouvre et travaille tout de suite.</dd></div>
+      <div class="figure rise"><dt><span class="count" data-to="0">0</span>&nbsp;octet</dt><dd>envoyé sur Internet. Recto n'a pas de serveur.</dd></div>
+    </dl>
   </section>
 
   <section id="questions" class="faq frame" aria-labelledby="faq-title">
@@ -212,7 +262,7 @@
       </details>
       <details>
         <summary>Le caviardage est-il fiable&nbsp;?</summary>
-        <p>Le texte, les images et les dessins sous un rectangle noir sont retirés du fichier, pas seulement cachés&nbsp;: on ne peut plus les copier ni les retrouver par recherche. Deux limites&nbsp;: un tracé qui dépasse de la zone reste sous le rectangle, et la structure d'accessibilité du document est supprimée. Relisez toujours le fichier exporté.</p>
+        <p>Le texte, les images et les dessins sous un rectangle noir sont retirés du fichier, pas seulement cachés. Deux limites&nbsp;: un tracé qui dépasse de la zone reste sous le rectangle, et la structure d'accessibilité du document est supprimée. Relisez toujours le fichier exporté.</p>
       </details>
       <details>
         <summary>Peut-on modifier le texte déjà présent dans un PDF&nbsp;?</summary>
@@ -221,18 +271,20 @@
     </div>
   </section>
 
-  <section id="telecharger" class="cta frame" aria-labelledby="cta-title">
-    <h2 id="cta-title" class="visually-hidden">Télécharger Recto</h2>
-    <form class="cta-sentence rise" action="https://github.com/EvanPluchart/recto/releases/latest" method="get">
-      <span>Recto pour Windows, en</span>
-      <label class="visually-hidden" for="cta-kind">Format</label>
-      <select id="cta-kind" class="cta-select">
-        <option value="setup">installateur</option>
-        <option value="zip">version portable</option>
-      </select>
-      <button class="cta-button" type="submit">Télécharger</button>
-    </form>
-    <p class="cta-note rise" id="cta-note">L'installateur ajoute Recto au menu Démarrer et à «&nbsp;Ouvrir avec&nbsp;» pour les PDF, sans remplacer votre lecteur par défaut. Fichier <em>Recto-…-windows-x64-setup.exe</em>, 21&nbsp;Mo.</p>
+  <section id="telecharger" class="cta" aria-labelledby="cta-title">
+    <div class="frame">
+      <h2 id="cta-title" class="visually-hidden">Télécharger Recto</h2>
+      <form class="cta-sentence" action="https://github.com/EvanPluchart/recto/releases/latest" method="get">
+        <span>Recto pour Windows, en</span>
+        <label class="visually-hidden" for="cta-kind">Format</label>
+        <select id="cta-kind" class="cta-select">
+          <option value="setup">installateur</option>
+          <option value="zip">version portable</option>
+        </select>
+        <button class="cta-button" type="submit">Télécharger</button>
+      </form>
+      <p class="cta-note" id="cta-note">L'installateur ajoute Recto au menu Démarrer et à «&nbsp;Ouvrir avec&nbsp;» pour les PDF, sans remplacer votre lecteur par défaut. Fichier <em>Recto-…-windows-x64-setup.exe</em>, 21&nbsp;Mo.</p>
+    </div>
   </section>
 
 </main>
