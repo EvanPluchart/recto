@@ -85,7 +85,7 @@ Each milestone ends with something you can run and show. Estimates are evenings 
 * Check GitHub for a newer release at launch (after 3 s) and every 6 hours; `--no-update-check` or `RECTO_NO_UPDATE_CHECK` turns it off (decision 0006).
 * An "Update" button in the app bar: download the installer, check its SHA-256, ask about unsaved changes, install, start again on the same document.
 
-**Status (2026-10-24):** on `dev`, Windows only. 0.1.0 has no updater: the first update through the button will be from the next version to the one after.
+**Status (2026-10-24):** in 0.1.1, Windows only. 0.1.0 has no updater: the first update through the button is from 0.1.1 to the next version.
 
 ## Later, maybe
 
