@@ -80,6 +80,13 @@ Each milestone ends with something you can run and show. Estimates are evenings 
 
 **Status (2026-10-22):** `cargo xtask dist` builds and packages for the host (`xtask/src/dist.rs`, files in `packaging/`); `.github/workflows/release.yml` runs it on the three systems for a `v*` tag or by hand and drafts a GitHub release. Checked on Windows: the Inno Setup installer installs per user without administrator rights, registers Recto under "Open with" for `.pdf` and in Default apps (without taking over the default viewer), starts with a file, and uninstalls without leaving files or registry keys. macOS (`Recto.app` with `CFBundleDocumentTypes`, `.dmg`, Finder "open document" events handled through `on_open_urls`) and Linux (AppDir with a `.desktop` for `application/pdf`, AppImage) are written but not yet run: they need the Release workflow. Signing: macOS takes a Developer ID certificate and notary credentials from repository secrets (none set yet, so builds are unsigned); Windows code signing needs a certificate, not chosen yet. The landing page is in `site/` (French, design system in `site/DESIGN.md`, screenshots of the app on `cargo xtask gen-demo`); `.github/workflows/pages.yml` publishes it by hand, once the repository is public and Pages is enabled. Not published yet.
 
+## Updates from the app
+
+* Check GitHub for a newer release at launch (after 3 s) and every 6 hours; `--no-update-check` or `RECTO_NO_UPDATE_CHECK` turns it off (decision 0006).
+* An "Update" button in the app bar: download the installer, check its SHA-256, ask about unsaved changes, install, start again on the same document.
+
+**Status (2026-10-24):** on `dev`, Windows only. 0.1.0 has no updater: the first update through the button will be from the next version to the one after.
+
 ## Later, maybe
 
 PDF to images, images to PDF, compare two PDFs, n-up printing, digital signatures (PAdES), batch processing from a CLI (`recto merge a.pdf b.pdf -o out.pdf`).

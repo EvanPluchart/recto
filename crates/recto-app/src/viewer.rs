@@ -37,6 +37,7 @@ mod sidebar;
 mod signature;
 mod textedit;
 mod tools;
+mod update;
 
 pub use self::sidebar::Tab;
 pub use self::edit::{EditSpec, parse_edits};
@@ -349,10 +350,17 @@ pub struct Viewer {
     ocr_engine: Option<Arc<recto_ocr::Engine>>,
     /// The print job in progress.
     printing: Option<print::PrintJob>,
+    /// Updates from the app (decision 0006): where they stand, what the button can do, and an
+    /// installer already downloaded and checked (kept when the reader declined to close).
+    update: crate::update::Phase,
+    update_mode: crate::update::Mode,
+    update_ready: Option<(recto_core::update::Version, std::path::PathBuf)>,
 }
 
 impl Viewer {
     pub fn new(args: Args, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        // Read before the fields below move out of `args`.
+        let checks_updates = args.checks_updates();
         let theme = Theme::light();
         let zoom = args.zoom.map_or(ZoomMode::FitWidth, |pct| ZoomMode::Fixed((pct / 100.0).clamp(MIN_ZOOM, MAX_ZOOM)));
         let page_input = cx.new(|cx| TextInput::new("", |c| c.is_ascii_digit(), theme, cx));
@@ -407,6 +415,9 @@ impl Viewer {
             loading: 0,
             ocr_engine: None,
             printing: None,
+            update: crate::update::Phase::Idle,
+            update_mode: crate::update::Mode::Unsupported,
+            update_ready: None,
         };
         // Focus first: a password prompt takes it over.
         window.focus(&viewer.focus);
@@ -421,6 +432,16 @@ impl Viewer {
         }
         if let Some(path) = args.export {
             viewer.write_document(path, Some(args.export_options), window, cx);
+        }
+        // Started again by the installer: say so, with a link to what is new.
+        let current = args.pretend_version.clone().unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_owned());
+        if args.updated
+            && let Some(version) = recto_core::update::Version::parse(&current)
+        {
+            viewer.update = crate::update::Phase::Installed(version);
+        }
+        if checks_updates {
+            viewer.start_update_checks(current, cx);
         }
         if args.ocr {
             let pages = viewer.page_order();

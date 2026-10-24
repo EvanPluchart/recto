@@ -41,6 +41,10 @@ LicenseFile=..\..\LICENSE
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
+; Every running Recto holds this mutex (decision 0006): Setup waits for them to close rather than
+; replacing files in use, and never closes one itself, since it may hold unsaved work.
+AppMutex=Local\Recto.Running
+CloseApplications=no
 
 [Languages]
 Name: "fr"; MessagesFile: "compiler:Languages\French.isl"
@@ -77,3 +81,40 @@ Root: HKA; Subkey: "Software\RegisteredApplications"; ValueType: string; ValueNa
 
 [Run]
 Filename: "{app}\Recto.exe"; Description: "{cm:LaunchProgram,Recto}"; Flags: nowait postinstall skipifsilent
+; An update from the app (decision 0006) runs silently and asks for Recto to start again.
+Filename: "{app}\Recto.exe"; Parameters: "--updated"; Flags: nowait; Check: RelaunchAsked
+
+[Code]
+const
+  RectoMutex = 'Local\Recto.Running';
+  UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{5B0E7A54-1F0B-4C47-9D0E-7C2F3A9E4D21}_is1';
+
+{ Started by Recto's update button. }
+function RelaunchAsked(): Boolean;
+begin
+  Result := ExpandConstant('{param:relaunch|0}') = '1';
+end;
+
+{ An update from the app: the Recto that asked quits right after starting this installer, so
+  give it a few seconds. Another Recto still open is never closed from here (it may hold
+  unsaved work): stop, and start the Recto that asked again, so the reader is not left with
+  none. }
+function InitializeSetup(): Boolean;
+var
+  Waited, Code: Integer;
+  Location: String;
+begin
+  Result := True;
+  if RelaunchAsked() then
+  begin
+    Waited := 0;
+    while CheckForMutexes(RectoMutex) and (Waited < 10000) do
+    begin
+      Sleep(250);
+      Waited := Waited + 250;
+    end;
+    Result := not CheckForMutexes(RectoMutex);
+    if (not Result) and RegQueryStringValue(HKCU, UninstallKey, 'InstallLocation', Location) then
+      Exec(AddBackslash(Location) + 'Recto.exe', '', '', SW_SHOWNORMAL, ewNoWait, Code);
+  end;
+end;

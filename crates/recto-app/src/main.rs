@@ -13,6 +13,7 @@ mod recent;
 mod signatures;
 mod text_input;
 mod theme;
+mod update;
 mod viewer;
 #[cfg(windows)]
 mod printer;
@@ -60,6 +61,13 @@ pub struct Args {
     pub replace: Option<String>,
     /// Starts with annotations hidden (`--hide-annotations`).
     pub hide_annotations: bool,
+    /// Never asks GitHub for a newer release (`--no-update-check`); also `RECTO_NO_UPDATE_CHECK`.
+    pub no_update_check: bool,
+    /// Behaves as this older version and checks for updates even with screenshot flags
+    /// (`--pretend-version=X.Y.Z`), to see the update button.
+    pub pretend_version: Option<String>,
+    /// Started again by the installer after an update from the app (`--updated`).
+    pub updated: bool,
 }
 
 impl Args {
@@ -109,6 +117,12 @@ impl Args {
                 parsed.edit = true;
             } else if arg == "--ocr" {
                 parsed.ocr = true;
+            } else if arg == "--no-update-check" {
+                parsed.no_update_check = true;
+            } else if let Some(version) = arg.strip_prefix("--pretend-version=") {
+                parsed.pretend_version = Some(version.to_owned());
+            } else if arg == "--updated" {
+                parsed.updated = true;
             } else if arg.starts_with("--") {
                 eprintln!("recto: ignoring unknown option {arg}");
             } else {
@@ -117,10 +131,34 @@ impl Args {
         }
         parsed
     }
+
+    /// Whether to look for updates: not when asked not to, nor in a run made for screenshots or
+    /// tests (any flag that sets a state up), unless it pretends to be an older version.
+    pub fn checks_updates(&self) -> bool {
+        if self.pretend_version.is_some() {
+            return true;
+        }
+        let staged = self.find.is_some()
+            || !self.apply.is_empty()
+            || self.save_as.is_some()
+            || self.tool.is_some()
+            || self.ocr
+            || self.export.is_some()
+            || self.menu.is_some()
+            || self.dialog.is_some()
+            || self.replace.is_some();
+        !self.no_update_check && !staged && std::env::var_os("RECTO_NO_UPDATE_CHECK").is_none()
+    }
 }
 
 fn main() {
-    let args = Args::parse(std::env::args().skip(1));
+    let mut args = Args::parse(std::env::args().skip(1));
+    // For the installer: it waits until no Recto runs (decision 0006).
+    update::mark_running();
+    // Started again after an update from the app: the document that was open.
+    if args.updated && args.file.is_none() {
+        args.file = update::take_reopen();
+    }
     // Files the system asks to open (macOS: double-click in the Finder, "Open with"); elsewhere
     // they come as arguments.
     let (opened, to_open) = flume::unbounded::<PathBuf>();
@@ -214,6 +252,15 @@ mod tests {
         assert_eq!(args.export, Some(PathBuf::from("out.pdf")));
         assert!(args.ocr && args.export_options.compress && args.export_options.grayscale && !args.export_options.flatten_forms);
         assert!(matches!(&args.export_options.security, Security::Protect(protection) if protection.user_password == "secret"));
+    }
+
+    #[test]
+    fn screenshot_runs_never_check_for_updates() {
+        assert!(parse("a.pdf --page=2").checks_updates() || std::env::var_os("RECTO_NO_UPDATE_CHECK").is_some());
+        assert!(!parse("a.pdf --menu=pages").checks_updates());
+        assert!(!parse("a.pdf --no-update-check").checks_updates());
+        assert!(parse("a.pdf --menu=pages --pretend-version=0.0.1").checks_updates());
+        assert!(parse("--updated").updated);
     }
 
     #[test]

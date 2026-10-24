@@ -202,6 +202,9 @@ impl Viewer {
                 );
         }
         bar = bar.child(div().flex_1());
+        if let Some(button) = self.update_button(cx) {
+            bar = bar.child(button);
+        }
         if ready {
             let menu_button = |id: &'static str, icon_name: &'static str, label: &'static str, kind: MenuKind| {
                 let active = self.menu == Some(kind);
