@@ -34,6 +34,8 @@ pub enum Phase {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+// Some variants only arise on Windows, the one system with updates so far.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub enum Failure {
     /// The release publishes no checksum for its installer: it is never run.
     NoChecksum,
@@ -60,6 +62,8 @@ impl Failure {
 
 /// What the button can do in this process.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+// Some variants only arise on Windows, the one system with updates so far.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub enum Mode {
     /// An install for this account: downloads, checks and installs.
     Install,
