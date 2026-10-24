@@ -88,6 +88,9 @@ jobs:
         with:
           path: packages
           merge-multiple: true
+      # The in-app update checks the installer against this list before running it (decision 0006).
+      - name: Checksums
+        run: cd packages && sha256sum * > SHA256SUMS && cat SHA256SUMS
       # A draft: published by hand once checked.
       - run: gh release create "$GITHUB_REF_NAME" packages/* --draft --title "Recto ${GITHUB_REF_NAME#v}" --generate-notes --repo "$GITHUB_REPOSITORY"
         env:

@@ -24,6 +24,7 @@ pub mod stamp;
 pub mod text;
 pub mod textedit;
 pub mod textlayer;
+pub mod update;
 #[doc(hidden)]
 pub mod testfont;
 

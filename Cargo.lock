@@ -4571,7 +4571,7 @@ checksum = "03251193000f4bd3b042892be858ee50e8b3719f2b08e5833ac4353724632430"
 
 [[package]]
 name = "recto"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "embed-resource",
@@ -4584,11 +4584,12 @@ dependencies = [
  "recto-render",
  "sys-locale",
  "windows 0.61.3",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "recto-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "getrandom 0.4.3",
  "image",
@@ -4601,7 +4602,7 @@ dependencies = [
 
 [[package]]
 name = "recto-ocr"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "lopdf",
@@ -4613,7 +4614,7 @@ dependencies = [
 
 [[package]]
 name = "recto-render"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "flume 0.12.0",
@@ -7409,7 +7410,7 @@ checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 
 [[package]]
 name = "xtask"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "flate2",

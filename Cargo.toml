@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/recto-core", "crates/recto-render", "crates/recto-ocr", "crates/recto-app", "xtask"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "MIT"
 authors = ["Evan Pluchart"]
