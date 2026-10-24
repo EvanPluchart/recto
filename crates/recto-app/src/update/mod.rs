@@ -211,6 +211,16 @@ mod tests {
         assert_eq!(fetch(Version::parse("0.1.0").unwrap()), Err(Failure::NoChecksum));
     }
 
+    /// What "Update" does before running anything: 0.1.1's installer downloads and matches its
+    /// published checksum. Online, so by hand: `cargo test -p recto -- --ignored published`.
+    #[test]
+    #[ignore = "network"]
+    fn a_published_release_downloads_and_checks() {
+        let path = fetch(Version::parse("0.1.1").unwrap()).expect("downloaded and checked");
+        assert!(path.ends_with("Recto-0.1.1-windows-x64-setup.exe"));
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
     /// Online, by hand: the check finds 0.1.0 newer than a pretend 0.0.1.
     #[test]
     #[ignore = "network"]
