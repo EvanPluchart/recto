@@ -1,0 +1,10 @@
+<!-- The .dmg window's background, 660x400 points; the icons sit at (165, 190) and (495, 190).
+     dmg-background.tiff holds it at 1x and 2x: render this file to PNG at both scales, then
+     `tiffutil -cathidpicheck bg1.png bg2.png -out dmg-background.tiff`. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 400" width="660" height="400">
+  <rect width="660" height="400" fill="#F7F5F0"/>
+  <path d="M262 190H382" stroke="#FF6B35" stroke-width="6" stroke-linecap="round" fill="none"/>
+  <path d="M374 172L398 190L374 208" stroke="#FF6B35" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <text x="330" y="330" text-anchor="middle" font-family="-apple-system, Helvetica Neue, sans-serif" font-size="15" fill="#1B1F3B">Drag Recto into Applications to install it.</text>
+  <text x="330" y="354" text-anchor="middle" font-family="-apple-system, Helvetica Neue, sans-serif" font-size="12" fill="#6B6E80">First launch blocked? System Settings › Privacy &amp; Security › Open Anyway.</text>
+</svg>

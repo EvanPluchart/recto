@@ -129,23 +129,83 @@ fn macos(root: &Path, out: &Path, folder: &Path) -> Result<()> {
     run(Command::new("iconutil").arg("-c").arg("icns").arg(&iconset).arg("-o").arg(contents.join("Resources/Recto.icns")))?;
     fs::remove_dir_all(&iconset)?;
 
-    if let Ok(identity) = std::env::var("RECTO_MACOS_IDENTITY") {
-        // Inside out: the library, then the bundle, with the hardened runtime notarisation needs.
-        for path in [contents.join("Frameworks/libpdfium.dylib"), app.clone()] {
-            run(Command::new("codesign").args(["--force", "--timestamp", "--options", "runtime", "--sign", &identity]).arg(path))?;
-        }
-    } else {
-        println!("RECTO_MACOS_IDENTITY not set: the app is not signed (Gatekeeper will warn)");
+    // Inside out: the library, then the bundle. Without a Developer ID the bundle is still signed
+    // ad hoc (free, no Apple account): the linker's signature covers only the executable, and a
+    // downloaded bundle without a sealed one is reported "damaged", with no way to open it.
+    let identity = std::env::var("RECTO_MACOS_IDENTITY").ok();
+    for path in [contents.join("Frameworks/libpdfium.dylib"), app.clone()] {
+        let mut codesign = Command::new("codesign");
+        codesign.arg("--force");
+        match &identity {
+            // With the hardened runtime notarisation needs.
+            Some(identity) => codesign.args(["--timestamp", "--options", "runtime", "--sign", identity]),
+            None => codesign.args(["--sign", "-"]),
+        };
+        run(codesign.arg(path))?;
+    }
+    if identity.is_none() {
+        println!("RECTO_MACOS_IDENTITY not set: the app is signed ad hoc (Gatekeeper asks to confirm the first launch)");
     }
 
     let dmg = out.join(format!("Recto-{VERSION}-macos.dmg"));
     let _ = fs::remove_file(&dmg);
-    run(Command::new("hdiutil").args(["create", "-volname", "Recto", "-format", "UDZO", "-srcfolder"]).arg(&app).arg(&dmg))?;
-    if let (Ok(_), Ok(profile)) = (std::env::var("RECTO_MACOS_IDENTITY"), std::env::var("RECTO_NOTARY_PROFILE")) {
+    disk_image(root, out, &app, &dmg)?;
+    if let (Some(_), Ok(profile)) = (&identity, std::env::var("RECTO_NOTARY_PROFILE")) {
         run(Command::new("xcrun").args(["notarytool", "submit", "--keychain-profile", &profile, "--wait"]).arg(&dmg))?;
         run(Command::new("xcrun").args(["stapler", "staple"]).arg(&dmg))?;
     }
     println!("{}", dmg.display());
+    Ok(())
+}
+
+/// The .dmg: Recto beside a link to Applications, over a background that says to drag one onto
+/// the other. Finder lays the window out through AppleScript; if it cannot (no GUI session), the
+/// image keeps the default layout.
+fn disk_image(root: &Path, out: &Path, app: &Path, dmg: &Path) -> Result<()> {
+    let stage = out.join("dmg");
+    let _ = fs::remove_dir_all(&stage);
+    fs::create_dir_all(stage.join(".background"))?;
+    run(Command::new("ditto").arg(app).arg(stage.join("Recto.app")))?;
+    std::os::unix::fs::symlink("/Applications", stage.join("Applications"))?;
+    copy(&root.join("packaging/macos/dmg-background.tiff"), &stage.join(".background/background.tiff"))?;
+
+    let writable = out.join("Recto-rw.dmg");
+    let _ = fs::remove_file(&writable);
+    run(Command::new("hdiutil").args(["create", "-volname", "Recto", "-fs", "HFS+", "-format", "UDRW", "-srcfolder"]).arg(&stage).arg(&writable))?;
+    let mount = out.join("dmg-mount");
+    run(Command::new("hdiutil").args(["attach", "-readwrite", "-noverify", "-noautoopen", "-mountpoint"]).arg(&mount).arg(&writable))?;
+    let layout = format!(
+        r#"tell application "Finder"
+            set f to POSIX file "{}" as alias
+            open f
+            delay 2
+            set w to container window of f
+            set current view of w to icon view
+            set toolbar visible of w to false
+            set statusbar visible of w to false
+            set bounds of w to {{200, 120, 860, 520}}
+            set o to icon view options of w
+            set arrangement of o to not arranged
+            set icon size of o to 112
+            set text size of o to 13
+            set background picture of o to file ".background:background.tiff" of f
+            set position of item "Recto.app" of f to {{165, 190}}
+            set position of item "Applications" of f to {{495, 190}}
+            update f without registering applications
+            delay 1
+            close w
+        end tell"#,
+        mount.display()
+    );
+    let laid_out = Command::new("osascript").arg("-e").arg(&layout).status().is_ok_and(|status| status.success());
+    if !laid_out {
+        println!("Finder could not lay the .dmg window out: it keeps the default layout");
+    }
+    let _ = fs::remove_dir_all(mount.join(".fseventsd"));
+    run(Command::new("hdiutil").arg("detach").arg(&mount))?;
+    run(Command::new("hdiutil").args(["convert", "-format", "UDZO", "-imagekey", "zlib-level=9", "-o"]).arg(dmg).arg(&writable))?;
+    fs::remove_file(&writable)?;
+    fs::remove_dir_all(&stage)?;
     Ok(())
 }
 

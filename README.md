@@ -143,6 +143,8 @@ Details in [decision 0006](docs/decisions/0006-updates-from-the-app.md).
 
 Recto is built for Windows first. Some releases include preview packages for macOS on Apple Silicon (`.dmg`) and Linux (AppImage), which have not been tried by hand yet. Reports are welcome.
 
+On macOS, open the `.dmg` and drag Recto into Applications. The app is not notarised by Apple, so the first launch is blocked: open **System Settings › Privacy & Security** and click **Open Anyway**, once.
+
 </details>
 
 ## Privacy and security
